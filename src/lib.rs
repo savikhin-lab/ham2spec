@@ -8,7 +8,12 @@ use numpy::ndarray::{
     Axis,
     arr1,
     s};
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
+use numpy::{
+    IntoPyArray,
+    PyArray1,
+    PyArray2, 
+    PyReadonlyArray1,
+    PyReadonlyArray2};
 
 /// Compute the dot product of 2 3-vectors
 fn dot(a: ArrayView1<f32>, b: ArrayView1<f32>) -> f32 {
@@ -43,6 +48,37 @@ fn stick_abs_single(e_vecs: ArrayView2<f32>, pig_mus: ArrayView2<f32>) -> Array1
         stick_abs[i] = dot(mu, mu);
     }
     stick_abs
+}
+
+/// Compute the CD stick spectrum
+/// 
+/// The eigenvectors must be arranged into columns, and the pigment dipole moments
+/// must be arranged into rows.
+fn stick_cd_single(e_vecs: ArrayView2<f32>, mus: ArrayView2<f32>, pos: ArrayView2<f32>, energies: ArrayView1<f32>) -> Array1<f32> {
+    let coeffs: Vec<f32> = energies.iter()
+        .map(|e| {
+        let wavelength = if e < &1.0 {
+            1e8 / 100_000f32
+        } else {
+            1e8 / e
+        };
+        2f32 * core::f32::consts::PI / wavelength
+    })
+    .collect();
+    let mut cd = Array1::zeros(energies.raw_dim());
+    let n_pigs = e_vecs.ncols();
+    for i in 0..n_pigs {
+        for j in 0..n_pigs {
+            for k in j..n_pigs {
+                let r = &pos.row(j) - &pos.row(k);
+                let mu_cross = cross(mus.row(j), mus.row(k));
+                let r_mu_dot = dot(r.view(), mu_cross.view());
+                cd[i] += 2f32 * e_vecs[[j, i]] * e_vecs[[k, i]] * r_mu_dot;
+            }
+        }
+        cd[i] *= coeffs[i];
+    }
+    cd
 }
 
 /// Computes the transition dipole moments for each exciton.
@@ -96,6 +132,20 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     /// Compute the CD stick spectrum
     #[pyfn(m)]
     #[pyo3(name = "stick_cd_single")]
+    fn stick_cd_single_py<'py>(
+        py: Python<'py>,
+        e_vecs: PyReadonlyArray2<f32>,
+        pig_mus: PyReadonlyArray2<f32>,
+        pig_pos: PyReadonlyArray2<f32>,
+        energies: PyReadonlyArray1<f32>
+    ) -> &'py PyArray1<f32> {
+        stick_cd_single(
+            e_vecs.as_array(),
+            pig_mus.as_array(),
+            pig_pos.as_array(),
+            energies.as_array()
+        ).into_pyarray(py)
+    }
 
     Ok(())
 }
