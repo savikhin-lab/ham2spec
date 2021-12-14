@@ -29,7 +29,7 @@ fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32
     mus.row_mut(del).fill(0f32);
 }
 
-/// Computes the stick spectrum of the absorbance
+/// Compute the absorbance stick spectrum
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows.
@@ -82,16 +82,20 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         exciton_mus(e_vecs.as_array(), pig_mus.as_array()).into_pyarray(py)
     }
 
-    /// Compute the stick spectrum of the absorbance.
+    /// Compute the absorbance stick spectrum
     #[pyfn(m)]
-    #[pyo3(name = "stick_abs")]
-    fn stick_abs_py<'py>(
+    #[pyo3(name = "stick_abs_single")]
+    fn stick_abs_single_py<'py>(
         py: Python<'py>,
         e_vecs: PyReadonlyArray2<f32>,
         pig_mus: PyReadonlyArray2<f32>
     ) -> &'py PyArray1<f32> {
         stick_abs_single(e_vecs.as_array(), pig_mus.as_array()).into_pyarray(py)
     }
+
+    /// Compute the CD stick spectrum
+    #[pyfn(m)]
+    #[pyo3(name = "stick_cd_single")]
 
     Ok(())
 }
