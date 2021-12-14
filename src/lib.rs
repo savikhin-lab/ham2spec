@@ -1,5 +1,13 @@
 use pyo3::prelude::*;
-use numpy::ndarray::{ArrayView1, ArrayView2, Array1, Array2, Axis, arr1, s};
+use numpy::ndarray::{
+    ArrayView1,
+    ArrayView2, 
+    ArrayViewMut2,
+    Array1,
+    Array2,
+    Axis,
+    arr1,
+    s};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
 
 /// Compute the dot product of 2 3-vectors
@@ -42,11 +50,11 @@ fn exciton_mus(e_vecs: ArrayView2<f32>, pig_mus: ArrayView2<f32>) -> Array2<f32>
     for i in 0_usize..n_pigs {
         tmp_mus.fill(0_f32); // clear out the previous iteration
         for j in 0_usize..n_pigs {
-            let mut tmp_mu = tmp_mus.slice_mut(s![j, ..]);
-            let scaled_mu = pig_mus.slice(s![j, ..]).mapv(|x| x * e_vecs[[j, i]]);
+            let mut tmp_mu = tmp_mus.row_mut(j);
+            let scaled_mu = pig_mus.row(j).mapv(|x| x * e_vecs[[j, i]]);
             tmp_mu.assign(&scaled_mu);
         }
-        let mut new_mu = new_mus.slice_mut(s![i, ..]);
+        let mut new_mu = new_mus.row_mut(i);
         let weighted_mu_sum = tmp_mus.sum_axis(Axis(0));
         new_mu.assign(&weighted_mu_sum);
     }
