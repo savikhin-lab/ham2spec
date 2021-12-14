@@ -22,6 +22,13 @@ fn cross(a: ArrayView1<f32>, b: ArrayView1<f32>) -> Array1<f32> {
                 a[0] * b[1] - a[1] * b[0]])
 }
 
+/// Deletes a pigment from the Hamiltonian
+fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32>, del: usize) {
+    ham.row_mut(del).fill(0f32);
+    ham.column_mut(del).fill(0f32);
+    mus.row_mut(del).fill(0f32);
+}
+
 /// Computes the stick spectrum of the absorbance
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
