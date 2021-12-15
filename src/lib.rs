@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use numpy::ndarray::{
     ArrayView1,
     ArrayView2, 
@@ -14,6 +15,17 @@ use numpy::{
     PyArray2, 
     PyReadonlyArray1,
     PyReadonlyArray2};
+use peroxide::prelude::*;
+use peroxide::numerical::eigen::{eigen, EigenMethod};
+
+#[derive(Debug, Clone)]
+pub struct StickSpectrum {
+    pub e_vecs: Array2<f32>,
+    pub e_vals: Array1<f32>,
+    pub mus: Array2<f32>,
+    pub stick_abs: Array1<f32>,
+    pub stick_cd: Array1<f32>
+}
 
 /// Compute the dot product of 2 3-vectors
 fn dot(a: ArrayView1<f32>, b: ArrayView1<f32>) -> f32 {
@@ -104,6 +116,43 @@ fn exciton_mus(e_vecs: ArrayView2<f32>, pig_mus: ArrayView2<f32>) -> Array2<f32>
     new_mus
 }
 
+/// Compute the stick spectra of a Hamiltonian
+fn compute_stick_spectrum(ham: ArrayView2<f32>, mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> StickSpectrum {
+    let mat = ndarray_2d_to_matrix(ham);
+    let eigs = eigen(&mat, EigenMethod::Jacobi);
+    let e_vals = Array1::from_vec(eigs.eigenvalue.clone().iter().map(|x| *x as f32).collect());
+    let e_vecs = matrix_to_2d_ndarray(mat);
+    let exc_mus = exciton_mus(e_vecs.view(), mus);
+    let abs_sticks = stick_abs_single(e_vecs.view(), mus);
+    let cd_sticks = stick_cd_single(e_vecs.view(), mus, pos, e_vals.view());
+    StickSpectrum {
+        e_vecs: e_vecs,
+        e_vals: e_vals,
+        mus: exc_mus,
+        stick_abs: abs_sticks,
+        stick_cd: cd_sticks,
+    }
+}
+
+/// Convert an ndarray into a peroxide Matrix
+fn ndarray_2d_to_matrix(arr: ArrayView2<f32>) -> Matrix {
+    let mut data = Vec::new();
+    data.extend_from_slice(arr.to_slice().unwrap());
+    let data = data.iter_mut().map(|x| *x as f64).collect();
+    Matrix {
+        data: data,
+        row: arr.nrows(),
+        col: arr.ncols(),
+        shape: Row
+    }
+}
+
+/// Convert a peroxide Matrix into a 2d ndarray
+fn matrix_to_2d_ndarray(mat: Matrix) -> Array2<f32> {
+    let data = mat.data.iter().map(|x| *x as f32).collect();
+    Array2::from_shape_vec((mat.row, mat.col), data).unwrap()
+}
+
 /// Compute absorbance and CD spectra from first principles.
 #[pymodule]
 fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -147,5 +196,29 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         ).into_pyarray(py)
     }
 
+    /// Compute the absorbance and CD stick spectrum of a single Hamiltonian
+    #[pyfn(m)]
+    #[pyo3(name = "compute_stick_spectrum")]
+    fn compute_stick_spectrum_py<'py>(
+        py: Python<'py>,
+        ham: PyReadonlyArray2<f32>,
+        pig_mus: PyReadonlyArray2<f32>,
+        pig_pos: PyReadonlyArray2<f32>,
+    ) -> &'py PyDict {
+        let sticks = compute_stick_spectrum(ham.as_array(), pig_mus.as_array(), pig_pos.as_array());
+        let dict = PyDict::new(py);
+        dict.set_item("e_vals", sticks.e_vals.into_pyarray(py)).unwrap();
+        dict.set_item("e_vecs", sticks.e_vecs.into_pyarray(py)).unwrap();
+        dict.set_item("exciton_mus", sticks.mus.into_pyarray(py)).unwrap();
+        dict.set_item("stick_abs", sticks.stick_abs.into_pyarray(py)).unwrap();
+        dict.set_item("stick_cd", sticks.stick_cd.into_pyarray(py)).unwrap();
+        dict
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    todo!();
 }
