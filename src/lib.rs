@@ -70,18 +70,34 @@ fn stick_cd_single(
         .collect();
     let mut cd = Array1::zeros(energies.raw_dim());
     let n_pigs = e_vecs.ncols();
+    let r_mu_cross_cache = populate_r_mu_cross_cache(mus, pos);
     for i in 0..n_pigs {
         for j in 0..n_pigs {
             for k in j..n_pigs {
-                let r = &pos.row(j) - &pos.row(k);
-                let mu_cross = cross(mus.row(j), mus.row(k));
-                let r_mu_dot = dot(r.view(), mu_cross.view());
-                cd[i] += 2f32 * e_vecs[[j, i]] * e_vecs[[k, i]] * r_mu_dot;
+                cd[i] += 2f32 * e_vecs[[j, i]] * e_vecs[[k, i]] * r_mu_cross_cache[[j, k]];
             }
         }
         cd[i] *= coeffs[i];
     }
     cd
+}
+
+/// Creates a cache of (r_i - r_j) * (mu_i x mu_j).
+fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Array2<f32> {
+    let n = mus.nrows();
+    let mut cache = Array2::zeros((n, n));
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let r_i = pos.row(i);
+            let r_j = pos.row(j);
+            let r = &r_i - &r_j;
+            let mu_i = mus.row(i);
+            let mu_j = mus.row(j);
+            let mu_cross = cross(mu_i, mu_j);
+            cache[[i, j]] = dot(r.view(), mu_cross.view());
+        }
+    }
+    cache
 }
 
 /// Computes the transition dipole moments for each exciton
@@ -538,26 +554,4 @@ mod test {
         );
         assert_abs_diff_eq!(test_stick_cd, good_stick_cd, epsilon = 1e-4);
     }
-}
-
-/// Creates a cache of (r_i - r_j) * (mu_i x mu_j).
-fn populate_r_mu_cross_cache(mus: &ArrayView2<f32>, pos: &ArrayView2<f32>) -> Array2<f32> {
-    let n = mus.nrows();
-    let mut cache = Array2::zeros((n, n));
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let r_i = pos.row(i);
-            let r_j = pos.row(j);
-            let mut r = Array1::zeros(3);
-            Zip::from(&mut r)
-                .and(&r_i)
-                .and(&r_j)
-                .for_each(|r_out, &r_ii, &r_jj| *r_out = r_ii - r_jj);
-            let mu_i = mus.row(i);
-            let mu_j = mus.row(j);
-            let mu_cross = cross(mu_i.view(), mu_j.view());
-            cache[[i, j]] = dot(r.view(), mu_cross.view());
-        }
-    }
-    cache
 }
