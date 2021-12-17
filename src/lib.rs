@@ -32,7 +32,7 @@ fn cross(a: ArrayView1<f32>, b: ArrayView1<f32>) -> Array1<f32> {
 }
 
 /// Deletes a pigment from the Hamiltonian
-fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32>, del: usize) {
+pub fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32>, del: usize) {
     ham.row_mut(del).fill(0f32);
     ham.column_mut(del).fill(0f32);
     mus.row_mut(del).fill(0f32);
@@ -42,7 +42,7 @@ fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows.
-fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
+pub fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
     let n_pigs = mus.nrows();
     let mut stick_abs = Array1::zeros(n_pigs);
     Zip::from(&mut stick_abs)
@@ -55,7 +55,7 @@ fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows.
-fn stick_cd_single(
+pub fn stick_cd_single(
     e_vecs: ArrayView2<f32>,
     mus: ArrayView2<f32>,
     pos: ArrayView2<f32>,
@@ -83,7 +83,7 @@ fn stick_cd_single(
 }
 
 /// Creates a cache of (r_i - r_j) * (mu_i x mu_j).
-fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Array2<f32> {
+pub fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Array2<f32> {
     let n = mus.nrows();
     let mut cache = Array2::zeros((n, n));
     for i in 0..n {
@@ -101,7 +101,7 @@ fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Arra
 }
 
 /// Computes the transition dipole moments for each exciton
-fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f32> {
+pub fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f32> {
     let n_pigs = e_vecs.ncols();
     let mut e_mus = Array2::zeros(p_mus.raw_dim());
     for i in 0..n_pigs {
@@ -114,7 +114,7 @@ fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f
 }
 
 /// Diagonalize a Hamiltonian
-fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
+pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
     // Normally you would need to convert the Hamiltonian to an array with Fortran
     // memory ordering, but the matrix is symmetric so the transpose doesn't actually
     // change the matrix.
@@ -159,7 +159,7 @@ fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
 }
 
 /// Compute the stick spectra of a Hamiltonian
-fn compute_stick_spectrum(
+pub fn compute_stick_spectrum(
     ham: ArrayView2<f32>,
     mus: ArrayView2<f32>,
     pos: ArrayView2<f32>,
