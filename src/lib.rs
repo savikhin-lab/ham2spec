@@ -88,14 +88,11 @@ fn stick_cd_single(
 fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f32> {
     let n_pigs = e_vecs.ncols();
     let mut e_mus = Array2::zeros(p_mus.raw_dim());
-    let mut weights = Array2::zeros(p_mus.raw_dim());
     for i in 0..n_pigs {
-        weights.column_mut(0).assign(&e_vecs.column(i));
-        weights.column_mut(1).assign(&e_vecs.column(i));
-        weights.column_mut(2).assign(&e_vecs.column(i));
-        let weighted_mu = (&weights * p_mus).sum_axis(Axis(0));
+        let weighted_mu = Zip::from(e_vecs.column(i))
+            .and(p_mus.rows())
+            .fold(Array1::zeros(3), |acc, &w, mu| acc + w * &mu);
         e_mus.row_mut(i).assign(&weighted_mu);
-        weights.fill(0.0);
     }
     e_mus
 }
@@ -137,7 +134,6 @@ fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
     let e_vals: Array1<f32> = Array1::from_vec(e_vals_real).reversed_axes();
     let e_vecs = Array2::from_shape_vec((ham_size as usize, ham_size as usize), e_vecs_right)
         .unwrap()
-        .t()
         .reversed_axes()
         .as_standard_layout()
         .to_owned();
@@ -351,55 +347,55 @@ mod test {
     ];
     const BRIXNER_E_VECS: [f32; 49] = [
         // 7x7 matrix unraveled, one eigenvector per column
-        -4.627165570855140686e-02,
-        -7.590184360742568970e-02,
-        9.399629235267639160e-01,
-        3.212469518184661865e-01,
-        6.559748947620391846e-02,
-        3.229876607656478882e-02,
-        4.646750167012214661e-03,
-        -4.649672806262969971e-01,
-        8.710590600967407227e-01,
-        4.258818551898002625e-02,
-        -7.314038462936878204e-03,
-        3.185947611927986145e-02,
-        1.439403444528579712e-01,
-        3.821665793657302856e-02,
-        7.956331968307495117e-02,
-        -1.111798435449600220e-01,
-        3.407490253448486328e-02,
-        -3.040867745876312256e-01,
-        5.599942803382873535e-01,
-        7.102859020233154297e-01,
-        2.637786269187927246e-01,
-        -6.591442972421646118e-02,
-        -3.561352565884590149e-02,
-        2.848581373691558838e-01,
-        -7.864409685134887695e-01,
-        -3.189901113510131836e-01,
-        6.433983892202377319e-02,
-        -4.345791339874267578e-01,
-        8.770710229873657227e-01,
-        4.607451856136322021e-01,
-        8.920583873987197876e-02,
-        -1.141071598976850510e-02,
-        -9.036991000175476074e-02,
-        4.298457875847816467e-02,
-        -1.892157457768917084e-02,
-        -3.971533477306365967e-02,
-        -9.785797446966171265e-02,
-        -7.284726947546005249e-02,
-        2.649361789226531982e-01,
-        -7.119409441947937012e-01,
-        6.292559504508972168e-01,
-        1.025944426655769348e-01,
-        -1.284499187022447586e-02,
-        -3.807079338002949953e-04,
-        1.381517946720123291e-01,
-        -3.398047685623168945e-01,
-        -2.535800337791442871e-01,
-        -2.679233551025390625e-01,
-        8.539296984672546387e-01,
+        -4.62779193e-02,
+        -4.64960172e-01,
+        7.95694100e-02,
+        -6.59153288e-02,
+        8.77070174e-01,
+        3.97137859e-02,
+        -1.28451052e-02,
+        -7.58944119e-02,
+        8.71062859e-01,
+        -1.11174889e-01,
+        -3.56131041e-02,
+        4.60743931e-01,
+        9.78584139e-02,
+        -3.80231272e-04,
+        9.39964910e-01,
+        4.25812316e-02,
+        3.40729894e-02,
+        2.84851912e-01,
+        8.92114997e-02,
+        7.28455406e-02,
+        1.38152312e-01,
+        3.21242706e-01,
+        -7.31556453e-03,
+        -3.04078678e-01,
+        -7.86447530e-01,
+        -1.14269838e-02,
+        -2.64925617e-01,
+        -3.39808606e-01,
+        6.55948819e-02,
+        3.18615043e-02,
+        5.60014918e-01,
+        -3.18976754e-01,
+        -9.03763572e-02,
+        7.11933630e-01,
+        -2.53578190e-01,
+        3.22989047e-02,
+        1.43941356e-01,
+        7.10271801e-01,
+        6.43476101e-02,
+        4.29799612e-02,
+        -6.29269202e-01,
+        -2.67925391e-01,
+        4.64504760e-03,
+        3.82176052e-02,
+        2.63782679e-01,
+        -4.34579985e-01,
+        -1.89343423e-02,
+        -1.02592731e-01,
+        8.53927980e-01,
     ];
     const BRIXNER_EXCITON_DIPOLE_MOMENTS: [f32; 21] = [
         // 7x3 matrix unraveled, one dipole moment per row
@@ -507,7 +503,11 @@ mod test {
         let dipole_moments = brixner_dipole_moments!();
         let test_exc_dipole_moments = exciton_dipole_moments(&e_vecs, &dipole_moments);
         let good_exc_dipole_moments = brixner_exciton_dipole_moments!();
-        assert_relative_eq!(test_exc_dipole_moments, good_exc_dipole_moments);
+        assert_abs_diff_eq!(
+            test_exc_dipole_moments,
+            good_exc_dipole_moments,
+            epsilon = 1e-4
+        );
     }
 }
 
