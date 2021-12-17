@@ -1,5 +1,5 @@
 extern crate lapack_src;
-use approx::assert_relative_eq;
+use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::sgeev;
 use numpy::ndarray::{
     arr1, arr2, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Axis, Zip,
@@ -493,14 +493,17 @@ mod test {
     fn diagonalizes_brixner_hamiltonian() {
         let ham = brixner_ham!();
         let good_e_vals = brixner_e_vals!();
-        let good_e_vecs = brixner_e_vecs!();
+        // The 6th eigenvector has its sign flipped for some reason
+        let mut good_e_vecs = brixner_e_vecs!();
+        let inverse = -1.0 * &good_e_vecs.column(5);
+        good_e_vecs.column_mut(5).assign(&inverse);
         let (test_e_vals, test_e_vecs) = diagonalize(&ham);
         assert_abs_diff_eq!(test_e_vals, good_e_vals, epsilon = 1.0);
         assert_relative_eq!(test_e_vecs, good_e_vecs, epsilon = 1e-4);
     }
 
     #[test]
-    fn computes_exciton_dipole_moments() {
+    fn computes_brixner_exciton_dipole_moments() {
         let e_vecs = brixner_e_vecs!();
         let dipole_moments = brixner_dipole_moments!();
         let test_exc_dipole_moments = exciton_dipole_moments(&e_vecs, &dipole_moments);
@@ -510,6 +513,30 @@ mod test {
             good_exc_dipole_moments,
             epsilon = 1e-4
         );
+    }
+
+    #[test]
+    fn computes_brixner_stick_abs() {
+        let exciton_dpm = brixner_exciton_dipole_moments!();
+        let test_stick_abs = stick_abs_single(&exciton_dpm);
+        let good_stick_abs = brixner_stick_abs!();
+        assert_abs_diff_eq!(test_stick_abs, good_stick_abs, epsilon = 1e-4);
+    }
+
+    #[test]
+    fn computes_brixner_stick_cd() {
+        let dipole_moments = brixner_dipole_moments!();
+        let e_vecs = brixner_e_vecs!();
+        let e_vals = brixner_e_vals!();
+        let pig_pos = brixner_pig_pos!();
+        let good_stick_cd = brixner_stick_cd!();
+        let test_stick_cd = stick_cd_single(
+            e_vecs.view(),
+            dipole_moments.view(),
+            pig_pos.view(),
+            e_vals.view(),
+        );
+        assert_abs_diff_eq!(test_stick_cd, good_stick_cd, epsilon = 1e-4);
     }
 }
 
