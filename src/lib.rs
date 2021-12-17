@@ -493,7 +493,7 @@ mod test {
         let good_e_vals = brixner_e_vals!();
         let good_e_vecs = brixner_e_vecs!();
         let (test_e_vals, test_e_vecs) = diagonalize(&ham);
-        assert_relative_eq!(test_e_vals, good_e_vals, epsilon = 0.1);
+        assert_abs_diff_eq!(test_e_vals, good_e_vals, epsilon = 1.0);
         assert_relative_eq!(test_e_vecs, good_e_vecs, epsilon = 1e-4);
     }
 
