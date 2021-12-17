@@ -13,7 +13,7 @@ classifiers = [
 
 [tool.poetry]
 name = "ham2spec"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Python extension for computing spectra from Hamiltonians"
 authors = ["Zach Mitchell <zmitchell@fastmail.com>"]
 
