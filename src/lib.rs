@@ -99,8 +99,10 @@ fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f
 
 /// Diagonalize a Hamiltonian
 fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
-    let mut ham_fortran_order = ham.clone();
-    ham_fortran_order.t().as_standard_layout().reversed_axes();
+    // Normally you would need to convert the Hamiltonian to an array with Fortran
+    // memory ordering, but the matrix is symmetric so the transpose doesn't actually
+    // change the matrix.
+    let mut ham = ham.clone();
     let ham_size = ham.nrows() as i32;
     let mut e_vals_real = Vec::with_capacity(ham_size as usize);
     e_vals_real.resize(ham_size as usize, 0.0);
@@ -115,10 +117,10 @@ fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
     let mut info: i32 = 0;
     unsafe {
         sgeev(
-            b'N',                                      // Don't calculate left eigenvectors
-            b'V',                                      // Do calculate the right eigenvectors
-            ham_size,                                  // The dimensions of the Hamiltonian
-            ham_fortran_order.as_slice_mut().unwrap(), // The underlying data in the Hamiltonian array
+            b'N',                        // Don't calculate left eigenvectors
+            b'V',                        // Do calculate the right eigenvectors
+            ham_size,                    // The dimensions of the Hamiltonian
+            ham.as_slice_mut().unwrap(), // The underlying data in the Hamiltonian array
             ham_size,                    // The "leading" dimension of `ham`, `ham` is square
             e_vals_real.as_mut_slice(),  // The place to put the real parts of the eigenvalues
             &mut e_vals_imag,            // The place to put the imaginary parts of the eigenvalues
