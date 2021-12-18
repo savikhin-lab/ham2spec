@@ -10,12 +10,18 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+description = "A Python extension for computing spectra from Hamiltonians"
+authors = [
+    { name = "Zach Mitchell", email = "zmitchell@fastmail.com"}
+]
+readme = "README.md"
 
 [tool.poetry]
 name = "ham2spec"
-version = "0.2.0"
+version = "0.2.2"
 description = "A Python extension for computing spectra from Hamiltonians"
 authors = ["Zach Mitchell <zmitchell@fastmail.com>"]
+readme = "README.md"
 
 [tool.poetry.dependencies]
 numpy = ">=1.18"

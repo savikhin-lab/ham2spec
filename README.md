@@ -1,14 +1,21 @@
 # ham2spec
 
-This is a Python extension written in Rust using [PyO3]() and [maturin](https://github.com/PyO3/maturin).
+This is a Python extension written in Rust using [PyO3](https://github.com/PyO3/pyo3) and [maturin](https://github.com/PyO3/maturin).
 
-This module computes absorption and circular dichroism (CD) spectra from a Hamiltonian and a set of pigment positions and transition dipole moments. It's primary used by the [fmo_analysis](https://github.com/savikhin-lab/fmo_analysis) tool.
+This module computes absorption and circular dichroism (CD) spectra from a Hamiltonian and a set of pigment positions and transition dipole moments. It's primarily used by the [fmo_analysis](https://github.com/savikhin-lab/fmo_analysis) tool.
 
 ## Installation
 Right now this only works on macOS because I only have a macOS system to test on. The primary hurdle to building on other systems is the dependency on LAPACK. Your system will need to have a LAPACK implementation installed, and you'll need to set the correct `lapack_src` feature.
 
-## Examples and benchmarking
-In order to run the examples you'll need to change the crate type from `"cdylib"` to `"rlib"`, otherwise you'll get linker errors.
+## Development
+The Python extension module requires a `crate-type` of `"cdylib"`, but running examples and requires a `crate-type` of `"rlib"`. In order to accommodate both you'll need to run tests via
+```
+$ cargo test --lib
+```
+and examples via
+```
+$ cargo run --no-default-features --example example_name
+```
 
 ## License
 
