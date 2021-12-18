@@ -2,19 +2,27 @@ extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::sgeev;
-use numpy::ndarray::{
-    arr1, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip,
-};
+use numpy::ndarray::{arr1, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+/// A stick spectrum computed from a single Hamiltonian and associated pigments.
 #[derive(Debug, Clone)]
 pub struct StickSpectrum {
+    /// The eigenvectors, one per column.
     pub e_vecs: Array2<f32>,
+
+    /// The energies of the excitons.
     pub e_vals: Array1<f32>,
+
+    /// The transition dipole moments of the excitons.
     pub mus: Array2<f32>,
+
+    /// The absorption (dipole strength) of each exciton.
     pub stick_abs: Array1<f32>,
+
+    /// The circular dichroism of each exciton.
     pub stick_cd: Array1<f32>,
 }
 
@@ -42,7 +50,8 @@ pub fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2
 /// Compute the absorbance stick spectrum
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
-/// must be arranged into rows.
+/// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
+/// layout of `mus`.
 pub fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
     let n_pigs = mus.nrows();
     let mut stick_abs = Array1::zeros(n_pigs);
@@ -55,7 +64,8 @@ pub fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
 /// Compute the CD stick spectrum
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
-/// must be arranged into rows.
+/// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
+/// layout of `mus` and `pos`.
 pub fn stick_cd_single(
     e_vecs: ArrayView2<f32>,
     mus: ArrayView2<f32>,
@@ -84,6 +94,9 @@ pub fn stick_cd_single(
 }
 
 /// Creates a cache of (r_i - r_j) * (mu_i x mu_j).
+///
+/// These values are used in each iteration of the CD calculation but do not
+/// change between iterations.
 pub fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Array2<f32> {
     let n = mus.nrows();
     let mut cache = Array2::zeros((n, n));
@@ -102,6 +115,10 @@ pub fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> 
 }
 
 /// Computes the transition dipole moments for each exciton
+///
+/// The exciton dipole moments are superpositions of the individual pigment
+/// dipole moments where the weights of the superposition come from the eigenvectors
+/// of the Hamiltonian.
 pub fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f32> {
     let n_pigs = e_vecs.ncols();
     let mut e_mus = Array2::zeros(p_mus.raw_dim());
@@ -114,7 +131,7 @@ pub fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Arra
     e_mus
 }
 
-/// Diagonalize a Hamiltonian
+/// Diagonalize a Hamiltonian, returns eigenvalues and eigenvectors
 pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
     // Normally you would need to convert the Hamiltonian to an array with Fortran
     // memory ordering, but the matrix is symmetric so the transpose doesn't actually
@@ -160,6 +177,10 @@ pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
 }
 
 /// Compute the stick spectra of a Hamiltonian
+///
+/// `ham`: An NxN Hamiltonian matrix
+/// `mus`: An Nx3 array of dipole moments, one row for each pigment
+/// `pos`: An Nx3 array of positions, one row for each pigment
 pub fn compute_stick_spectrum(
     ham: ArrayView2<f32>,
     mus: ArrayView2<f32>,
@@ -182,6 +203,9 @@ pub fn compute_stick_spectrum(
 #[pymodule]
 fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     /// Computes the transition dipole moments for each exciton.
+    ///
+    /// `e_vecs`: An NxN array of eigenvectors of the Hamiltonian, one vector per column
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "exciton_mus")]
     fn exciton_dipole_moments_py<'py>(
@@ -197,6 +221,8 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     /// Compute the absorbance stick spectrum
+    ///
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "stick_abs_single")]
     fn stick_abs_single_py<'py>(py: Python<'py>, mus: PyReadonlyArray2<f32>) -> &'py PyArray1<f32> {
@@ -204,25 +230,34 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     /// Compute the CD stick spectrum
+    ///
+    /// `e_vecs`: An NxN array of eigenvectors of the Hamiltonian, one vector per column
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
+    /// `pos`: An Nx3 array of positions, one row for each pigment
+    /// `energies`: An Nx1 array of eigenvalues of the Hamiltonian
     #[pyfn(m)]
     #[pyo3(name = "stick_cd_single")]
     fn stick_cd_single_py<'py>(
         py: Python<'py>,
         e_vecs: PyReadonlyArray2<f32>,
-        pig_mus: PyReadonlyArray2<f32>,
-        pig_pos: PyReadonlyArray2<f32>,
+        mus: PyReadonlyArray2<f32>,
+        pos: PyReadonlyArray2<f32>,
         energies: PyReadonlyArray1<f32>,
     ) -> &'py PyArray1<f32> {
         stick_cd_single(
             e_vecs.as_array(),
-            pig_mus.as_array(),
-            pig_pos.as_array(),
+            mus.as_array(),
+            pos.as_array(),
             energies.as_array(),
         )
         .into_pyarray(py)
     }
 
     /// Compute the absorbance and CD stick spectrum of a single Hamiltonian
+    ///
+    /// `ham`: An NxN Hamiltonian matrix
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
+    /// `pos`: An Nx3 array of positions, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "compute_stick_spectrum")]
     fn compute_stick_spectrum_py<'py>(
