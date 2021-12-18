@@ -124,6 +124,10 @@ fn main() {
     let ham = brixner_ham!();
     let mus = brixner_dipole_moments!();
     let pos = brixner_pig_pos!();
-    let sticks = compute_stick_spectrum(ham.view(), mus.view(), pos.view());
-    println!("{:?}", sticks);
+    let mut all_sticks = Vec::new();
+    for _ in 0..100_000 {
+        let sticks = compute_stick_spectrum(ham.view(), mus.view(), pos.view());
+        all_sticks.push(sticks);
+    }
+    println!("{:?}", all_sticks.len());
 }
