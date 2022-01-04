@@ -1,7 +1,7 @@
 extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
-use lapack::sgeev;
+use lapack::dgeev;
 use numpy::ndarray::{arr1, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -11,28 +11,28 @@ use pyo3::types::PyDict;
 #[derive(Debug, Clone)]
 pub struct StickSpectrum {
     /// The eigenvectors, one per column.
-    pub e_vecs: Array2<f32>,
+    pub e_vecs: Array2<f64>,
 
     /// The energies of the excitons.
-    pub e_vals: Array1<f32>,
+    pub e_vals: Array1<f64>,
 
     /// The transition dipole moments of the excitons.
-    pub mus: Array2<f32>,
+    pub mus: Array2<f64>,
 
     /// The absorption (dipole strength) of each exciton.
-    pub stick_abs: Array1<f32>,
+    pub stick_abs: Array1<f64>,
 
     /// The circular dichroism of each exciton.
-    pub stick_cd: Array1<f32>,
+    pub stick_cd: Array1<f64>,
 }
 
 /// Compute the dot product of 2 3-vectors
-fn dot(a: ArrayView1<f32>, b: ArrayView1<f32>) -> f32 {
+fn dot(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 /// Compute the cross-product of 2 3-vectors
-fn cross(a: ArrayView1<f32>, b: ArrayView1<f32>) -> Array1<f32> {
+fn cross(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Array1<f64> {
     arr1(&[
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -41,10 +41,10 @@ fn cross(a: ArrayView1<f32>, b: ArrayView1<f32>) -> Array1<f32> {
 }
 
 /// Deletes a pigment from the Hamiltonian
-pub fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2<f32>, del: usize) {
-    ham.row_mut(del).fill(0f32);
-    ham.column_mut(del).fill(0f32);
-    mus.row_mut(del).fill(0f32);
+pub fn delete_pigment_single(mut ham: ArrayViewMut2<f64>, mut mus: ArrayViewMut2<f64>, del: usize) {
+    ham.row_mut(del).fill(0f64);
+    ham.column_mut(del).fill(0f64);
+    mus.row_mut(del).fill(0f64);
 }
 
 /// Compute the absorbance stick spectrum
@@ -52,7 +52,7 @@ pub fn delete_pigment_single(mut ham: ArrayViewMut2<f32>, mut mus: ArrayViewMut2
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
 /// layout of `mus`.
-pub fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
+pub fn stick_abs_single(mus: &Array2<f64>) -> Array1<f64> {
     let n_pigs = mus.nrows();
     let mut stick_abs = Array1::zeros(n_pigs);
     Zip::from(&mut stick_abs)
@@ -67,16 +67,16 @@ pub fn stick_abs_single(mus: &Array2<f32>) -> Array1<f32> {
 /// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
 /// layout of `mus` and `pos`.
 pub fn stick_cd_single(
-    e_vecs: ArrayView2<f32>,
-    mus: ArrayView2<f32>,
-    pos: ArrayView2<f32>,
-    energies: ArrayView1<f32>,
-) -> Array1<f32> {
-    let coeffs: Vec<f32> = energies
+    e_vecs: ArrayView2<f64>,
+    mus: ArrayView2<f64>,
+    pos: ArrayView2<f64>,
+    energies: ArrayView1<f64>,
+) -> Array1<f64> {
+    let coeffs: Vec<f64> = energies
         .iter()
         .map(|e| {
-            let wavelength = if e < &1.0 { 1e8 / 100_000f32 } else { 1e8 / e };
-            2f32 * core::f32::consts::PI / wavelength
+            let wavelength = if e < &1.0 { 1e8 / 100_000f64 } else { 1e8 / e };
+            2f64 * core::f64::consts::PI / wavelength
         })
         .collect();
     let mut cd = Array1::zeros(energies.raw_dim());
@@ -85,7 +85,7 @@ pub fn stick_cd_single(
     for i in 0..n_pigs {
         for j in 0..n_pigs {
             for k in j..n_pigs {
-                cd[i] += 2f32 * e_vecs[[j, i]] * e_vecs[[k, i]] * r_mu_cross_cache[[j, k]];
+                cd[i] += 2f64 * e_vecs[[j, i]] * e_vecs[[k, i]] * r_mu_cross_cache[[j, k]];
             }
         }
         cd[i] *= coeffs[i];
@@ -97,7 +97,7 @@ pub fn stick_cd_single(
 ///
 /// These values are used in each iteration of the CD calculation but do not
 /// change between iterations.
-pub fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> Array2<f32> {
+pub fn populate_r_mu_cross_cache(mus: ArrayView2<f64>, pos: ArrayView2<f64>) -> Array2<f64> {
     let n = mus.nrows();
     let mut cache = Array2::zeros((n, n));
     for i in 0..n {
@@ -119,7 +119,7 @@ pub fn populate_r_mu_cross_cache(mus: ArrayView2<f32>, pos: ArrayView2<f32>) -> 
 /// The exciton dipole moments are superpositions of the individual pigment
 /// dipole moments where the weights of the superposition come from the eigenvectors
 /// of the Hamiltonian.
-pub fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Array2<f32> {
+pub fn exciton_dipole_moments(e_vecs: &Array2<f64>, p_mus: &Array2<f64>) -> Array2<f64> {
     let n_pigs = e_vecs.ncols();
     let mut e_mus = Array2::zeros(p_mus.raw_dim());
     for i in 0..n_pigs {
@@ -132,7 +132,7 @@ pub fn exciton_dipole_moments(e_vecs: &Array2<f32>, p_mus: &Array2<f32>) -> Arra
 }
 
 /// Diagonalize a Hamiltonian, returns eigenvalues and eigenvectors
-pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
+pub fn diagonalize(ham: &Array2<f64>) -> (Array1<f64>, Array2<f64>) {
     // Normally you would need to convert the Hamiltonian to an array with Fortran
     // memory ordering, but the matrix is symmetric so the transpose doesn't actually
     // change the matrix.
@@ -150,7 +150,7 @@ pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
     work_arr.resize(8 * ham_size as usize, 0.0);
     let mut info: i32 = 0;
     unsafe {
-        sgeev(
+        dgeev(
             b'N',                        // Don't calculate left eigenvectors
             b'V',                        // Do calculate the right eigenvectors
             ham_size,                    // The dimensions of the Hamiltonian
@@ -167,7 +167,7 @@ pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
             &mut info,                   // Will contain the status of the operation when done
         );
     }
-    let e_vals: Array1<f32> = Array1::from_vec(e_vals_real).reversed_axes();
+    let e_vals: Array1<f64> = Array1::from_vec(e_vals_real).reversed_axes();
     let e_vecs = Array2::from_shape_vec((ham_size as usize, ham_size as usize), e_vecs_right)
         .unwrap()
         .reversed_axes()
@@ -182,9 +182,9 @@ pub fn diagonalize(ham: &Array2<f32>) -> (Array1<f32>, Array2<f32>) {
 /// `mus`: An Nx3 array of dipole moments, one row for each pigment
 /// `pos`: An Nx3 array of positions, one row for each pigment
 pub fn compute_stick_spectrum(
-    ham: ArrayView2<f32>,
-    mus: ArrayView2<f32>,
-    pos: ArrayView2<f32>,
+    ham: ArrayView2<f64>,
+    mus: ArrayView2<f64>,
+    pos: ArrayView2<f64>,
 ) -> StickSpectrum {
     let (e_vals, e_vecs) = diagonalize(&ham.to_owned());
     let exc_mus = exciton_dipole_moments(&e_vecs, &mus.to_owned());
@@ -210,9 +210,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     #[pyo3(name = "exciton_mus")]
     fn exciton_dipole_moments_py<'py>(
         py: Python<'py>,
-        e_vecs: PyReadonlyArray2<f32>,
-        pig_mus: PyReadonlyArray2<f32>,
-    ) -> &'py PyArray2<f32> {
+        e_vecs: PyReadonlyArray2<f64>,
+        pig_mus: PyReadonlyArray2<f64>,
+    ) -> &'py PyArray2<f64> {
         exciton_dipole_moments(
             &e_vecs.as_array().to_owned(),
             &pig_mus.as_array().to_owned(),
@@ -225,7 +225,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     /// `mus`: An Nx3 array of dipole moments, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "stick_abs_single")]
-    fn stick_abs_single_py<'py>(py: Python<'py>, mus: PyReadonlyArray2<f32>) -> &'py PyArray1<f32> {
+    fn stick_abs_single_py<'py>(py: Python<'py>, mus: PyReadonlyArray2<f64>) -> &'py PyArray1<f64> {
         stick_abs_single(&mus.as_array().to_owned()).into_pyarray(py)
     }
 
@@ -239,11 +239,11 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     #[pyo3(name = "stick_cd_single")]
     fn stick_cd_single_py<'py>(
         py: Python<'py>,
-        e_vecs: PyReadonlyArray2<f32>,
-        mus: PyReadonlyArray2<f32>,
-        pos: PyReadonlyArray2<f32>,
-        energies: PyReadonlyArray1<f32>,
-    ) -> &'py PyArray1<f32> {
+        e_vecs: PyReadonlyArray2<f64>,
+        mus: PyReadonlyArray2<f64>,
+        pos: PyReadonlyArray2<f64>,
+        energies: PyReadonlyArray1<f64>,
+    ) -> &'py PyArray1<f64> {
         stick_cd_single(
             e_vecs.as_array(),
             mus.as_array(),
@@ -262,9 +262,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     #[pyo3(name = "compute_stick_spectrum")]
     fn compute_stick_spectrum_py<'py>(
         py: Python<'py>,
-        ham: PyReadonlyArray2<f32>,
-        pig_mus: PyReadonlyArray2<f32>,
-        pig_pos: PyReadonlyArray2<f32>,
+        ham: PyReadonlyArray2<f64>,
+        pig_mus: PyReadonlyArray2<f64>,
+        pig_pos: PyReadonlyArray2<f64>,
     ) -> &'py PyDict {
         let sticks = compute_stick_spectrum(ham.as_array(), pig_mus.as_array(), pig_pos.as_array());
         let dict = PyDict::new(py);
@@ -290,7 +290,7 @@ mod test {
     use numpy::ndarray::Array2;
 
     // These are known-good results we'll test against
-    const BRIXNER_HAM: [f32; 49] = [
+    const BRIXNER_HAM: [f64; 49] = [
         // 7x7 matrix unraveled
         1.242000000000000000e+04,
         -1.060000000000000000e+02,
@@ -342,7 +342,7 @@ mod test {
         3.200000000000000000e+01,
         1.240000000000000000e+04,
     ];
-    const BRIXNER_DIPOLE_MOMENTS: [f32; 21] = [
+    const BRIXNER_DIPOLE_MOMENTS: [f64; 21] = [
         // 7x3 matrix unraveled, one dipole moment per row
         -7.409999999999999920e-01,
         -5.605999999999999872e-01,
@@ -366,7 +366,7 @@ mod test {
         -7.083000000000000407e-01,
         -5.030999999999999917e-01,
     ];
-    const BRIXNER_PIG_POS: [f32; 21] = [
+    const BRIXNER_PIG_POS: [f64; 21] = [
         // 7x3 matrix unraveled, one position vector per row
         2.625349998474121094e+01,
         2.782999992370605469e+00,
@@ -390,7 +390,7 @@ mod test {
         -8.205499649047851562e+00,
         -5.826499938964843750e+00,
     ];
-    const BRIXNER_E_VALS: [f32; 7] = [
+    const BRIXNER_E_VALS: [f64; 7] = [
         1.211586132812500000e+04,
         1.262016503906250000e+04,
         1.254819335937500000e+04,
@@ -399,7 +399,7 @@ mod test {
         1.245148828125000000e+04,
         1.241604589843750000e+04,
     ];
-    const BRIXNER_E_VECS: [f32; 49] = [
+    const BRIXNER_E_VECS: [f64; 49] = [
         // 7x7 matrix unraveled, one eigenvector per column
         -4.62779193e-02,
         -4.64960172e-01,
@@ -451,7 +451,7 @@ mod test {
         -1.02592731e-01,
         8.53927980e-01,
     ];
-    const BRIXNER_EXCITON_DIPOLE_MOMENTS: [f32; 21] = [
+    const BRIXNER_EXCITON_DIPOLE_MOMENTS: [f64; 21] = [
         // 7x3 matrix unraveled, one dipole moment per row
         -3.97660199e-01,
         7.27544933e-01,
@@ -475,7 +475,7 @@ mod test {
         -2.14975460e-01,
         -5.24009187e-01,
     ];
-    const BRIXNER_STICK_ABS: [f32; 7] = [
+    const BRIXNER_STICK_ABS: [f64; 7] = [
         7.44459679e-01,
         6.06594031e-01,
         3.74449303e-01,
@@ -484,7 +484,7 @@ mod test {
         1.87179248e+00,
         3.23763930e-01,
     ];
-    const BRIXNER_STICK_CD: [f32; 7] = [
+    const BRIXNER_STICK_CD: [f64; 7] = [
         -3.68370364e-03,
         -2.10216543e-03,
         3.52796169e-04,
@@ -546,9 +546,7 @@ mod test {
         let ham = brixner_ham!();
         let good_e_vals = brixner_e_vals!();
         // The 6th eigenvector has its sign flipped for some reason
-        let mut good_e_vecs = brixner_e_vecs!();
-        let inverse = -1.0 * &good_e_vecs.column(5);
-        good_e_vecs.column_mut(5).assign(&inverse);
+        let good_e_vecs = brixner_e_vecs!();
         let (test_e_vals, test_e_vecs) = diagonalize(&ham);
         assert_abs_diff_eq!(test_e_vals, good_e_vals, epsilon = 1.0);
         assert_relative_eq!(test_e_vecs, good_e_vecs, epsilon = 1e-4);

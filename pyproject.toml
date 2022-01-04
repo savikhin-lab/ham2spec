@@ -18,7 +18,7 @@ readme = "README.md"
 
 [tool.poetry]
 name = "ham2spec"
-version = "0.2.2"
+version = "0.3.0"
 description = "A Python extension for computing spectra from Hamiltonians"
 authors = ["Zach Mitchell <zmitchell@fastmail.com>"]
 readme = "README.md"
