@@ -2,7 +2,7 @@ extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::dgeev;
-use numpy::ndarray::{arr1, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip};
+use numpy::ndarray::{arr1, Array, Array1, Array2, ArrayView1, ArrayView2, Zip};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
