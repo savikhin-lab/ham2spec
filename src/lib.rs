@@ -2,8 +2,9 @@ extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::dgeev;
-use numpy::ndarray::{arr1, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip};
+use numpy::ndarray::{arr1, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut2, Zip};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -24,6 +25,39 @@ pub struct StickSpectrum {
 
     /// The circular dichroism of each exciton.
     pub stick_cd: Array1<f64>,
+}
+
+/// The configuration for computing a broadened spectrum from a stick spectrum
+#[derive(Debug, Clone, FromPyObject)]
+pub struct BroadeningConfig {
+    /// The starting point for the x-axis in wavenumbers (cm^-1)
+    #[pyo3(attribute("xfrom"))]
+    pub x_from: f64,
+
+    /// The stopping point for the x-axis in wavenumbers (cm^-1)
+    #[pyo3(attribute("xto"))]
+    pub x_to: f64,
+
+    /// The step size for the x-axis in wavenumbers (cm^-1)
+    #[pyo3(attribute("xstep"))]
+    pub x_step: f64,
+
+    /// The bandwidth for each transition in wavenumbers (cm^-1)
+    #[pyo3(attribute("bandwidth"))]
+    pub bw: f64,
+}
+
+/// A broadened spectrum
+#[derive(Debug, Clone)]
+pub struct BroadenedSpectrum {
+    /// The x-axis for the spectra
+    pub x: Array1<f64>,
+
+    /// The absorption spectrum
+    pub abs: Array1<f64>,
+
+    /// The circular-dichroism spectrum
+    pub cd: Array1<f64>,
 }
 
 /// Compute the dot product of 2 3-vectors
@@ -199,6 +233,48 @@ pub fn compute_stick_spectrum(
     }
 }
 
+/// Compute the broadened spectrum of a stick spectrum
+pub fn compute_broadened_spectrum_from_stick(
+    energies: ArrayView1<f64>,
+    dip_strengths: ArrayView1<f64>,
+    rot_strengths: ArrayView1<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let x = Array::range(config.x_from, config.x_to, config.x_step);
+    let sigma_squared = config.bw.powi(2) / (4. * 2_f64.ln());
+    let abs = x.mapv(|x_i| abs_at_x(x_i, sigma_squared, energies, dip_strengths));
+    let cd = x.mapv(|x_i| abs_at_x(x_i, sigma_squared, energies, rot_strengths));
+    BroadenedSpectrum { x, abs, cd }
+}
+
+/// Computes the absorption at a point given the dipole strengths and energies.
+///
+/// Note, this function works just as well for circular dichroism if you supply
+/// rotational strengths instead of dipole strengths.
+fn abs_at_x(x: f64, s_sq: f64, energies: ArrayView1<f64>, strengths: ArrayView1<f64>) -> f64 {
+    Zip::from(&energies)
+        .and(&strengths)
+        .fold(0f64, |acc, &e, &s| {
+            acc + s * (-(x - e).powi(2) / s_sq).exp()
+        })
+}
+
+/// Computes the broadened spectra of a single Hamiltonian
+fn compute_broadened_spectrum_from_ham(
+    ham: ArrayView2<f64>,
+    mus: ArrayView2<f64>,
+    pos: ArrayView2<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let stick = compute_stick_spectrum(ham, mus, pos);
+    compute_broadened_spectrum_from_stick(
+        stick.e_vals.view(),
+        stick.stick_abs.view(),
+        stick.stick_cd.view(),
+        config,
+    )
+}
+
 /// Compute absorbance and CD spectra from first principles.
 #[pymodule]
 fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -279,6 +355,67 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         dict.set_item("stick_cd", sticks.stick_cd.into_pyarray(py))
             .unwrap();
         dict
+    }
+
+    /// Compute the broadened spectra of a single stick spectrum
+    #[pyfn(m)]
+    #[pyo3(name = "compute_broadened_spectrum_from_stick")]
+    fn compute_broadened_spectrum_from_stick_py<'py>(
+        py: Python<'py>,
+        stick: &'py PyDict,
+        config: PyObject,
+    ) -> PyResult<&'py PyDict> {
+        let energies = stick
+            .get_item("e_vals")
+            .ok_or(PyKeyError::new_err("e_vals"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let stick_abs = stick
+            .get_item("stick_abs")
+            .ok_or(PyKeyError::new_err("stick_abs"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let stick_cd = stick
+            .get_item("stick_cd")
+            .ok_or(PyKeyError::new_err("stick_cd"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let b_config: BroadeningConfig = config.extract(py)?;
+        let broadened = compute_broadened_spectrum_from_stick(
+            energies.view(),
+            stick_abs.view(),
+            stick_cd.view(),
+            &b_config,
+        );
+        let dict = PyDict::new(py);
+        dict.set_item("x", broadened.x.into_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        Ok(dict)
+    }
+
+    /// Compute the broadened spectra of a single Hamiltonian
+    #[pyfn(m)]
+    #[pyo3(name = "compute_broadened_spectrum_from_ham")]
+    fn compute_broadened_spectrum_from_ham_py<'py>(
+        py: Python<'py>,
+        ham: PyReadonlyArray2<f64>,
+        pig_mus: PyReadonlyArray2<f64>,
+        pig_pos: PyReadonlyArray2<f64>,
+        config: PyObject,
+    ) -> PyResult<&'py PyDict> {
+        let b_config: BroadeningConfig = config.extract(py)?;
+        let broadened = compute_broadened_spectrum_from_ham(
+            ham.as_array(),
+            pig_mus.as_array(),
+            pig_pos.as_array(),
+            &b_config,
+        );
+        let dict = PyDict::new(py);
+        dict.set_item("x", broadened.x.into_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        Ok(dict)
     }
 
     Ok(())
@@ -548,6 +685,7 @@ mod test {
         // The 6th eigenvector has its sign flipped for some reason
         let good_e_vecs = brixner_e_vecs!();
         let (test_e_vals, test_e_vecs) = diagonalize(&ham);
+        println!("{}", test_e_vecs);
         assert_abs_diff_eq!(test_e_vals, good_e_vals, epsilon = 1.0);
         assert_relative_eq!(test_e_vecs, good_e_vecs, epsilon = 1e-4);
     }
