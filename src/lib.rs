@@ -578,4 +578,18 @@ mod test {
         );
         assert_abs_diff_eq!(test_stick_cd, good_stick_cd, epsilon = 1e-4);
     }
+
+    #[test]
+    fn computes_broadened_spectra() {
+        let x = load_x();
+        let abs = load_abs();
+        let cd = load_cd();
+        let ham = load_ham();
+        let mus = load_dipole_moments();
+        let rs = load_positions();
+        let spec = compute_broadened_spectrum_from_ham(ham.view(), mus.view(), rs.view(), &CONFIG);
+        assert_abs_diff_eq!(x, spec.x, epsilon = 1e-4);
+        assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
+        assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
+    }
 }
