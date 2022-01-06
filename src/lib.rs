@@ -23,7 +23,7 @@ pub struct StickSpectrum {
     /// The absorption (dipole strength) of each exciton.
     pub stick_abs: Array1<f64>,
 
-    /// The circular dichroism of each exciton.
+    /// The circular dichroism (rotational strength) of each exciton.
     pub stick_cd: Array1<f64>,
 }
 
