@@ -79,7 +79,7 @@ fn cross(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Array1<f64> {
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
 /// layout of `mus`.
-pub fn stick_abs_single(mus: &Array2<f64>) -> Array1<f64> {
+pub fn stick_abs_single(mus: ArrayView2<f64>) -> Array1<f64> {
     let n_pigs = mus.nrows();
     let mut stick_abs = Array1::zeros(n_pigs);
     Zip::from(&mut stick_abs)
@@ -146,7 +146,7 @@ pub fn populate_r_mu_cross_cache(mus: ArrayView2<f64>, pos: ArrayView2<f64>) -> 
 /// The exciton dipole moments are superpositions of the individual pigment
 /// dipole moments where the weights of the superposition come from the eigenvectors
 /// of the Hamiltonian.
-pub fn exciton_dipole_moments(e_vecs: &Array2<f64>, p_mus: &Array2<f64>) -> Array2<f64> {
+pub fn exciton_dipole_moments(e_vecs: ArrayView2<f64>, p_mus: ArrayView2<f64>) -> Array2<f64> {
     let n_pigs = e_vecs.ncols();
     let mut e_mus = Array2::zeros(p_mus.raw_dim());
     for i in 0..n_pigs {
@@ -159,11 +159,11 @@ pub fn exciton_dipole_moments(e_vecs: &Array2<f64>, p_mus: &Array2<f64>) -> Arra
 }
 
 /// Diagonalize a Hamiltonian, returns eigenvalues and eigenvectors
-pub fn diagonalize(ham: &Array2<f64>) -> (Array1<f64>, Array2<f64>) {
+pub fn diagonalize(ham: ArrayView2<f64>) -> (Array1<f64>, Array2<f64>) {
     // Normally you would need to convert the Hamiltonian to an array with Fortran
     // memory ordering, but the matrix is symmetric so the transpose doesn't actually
     // change the matrix.
-    let mut ham = ham.clone();
+    let ham = ham.clone();
     let ham_size = ham.nrows() as i32;
     let mut e_vals_real = Vec::with_capacity(ham_size as usize);
     e_vals_real.resize(ham_size as usize, 0.0);
@@ -178,10 +178,10 @@ pub fn diagonalize(ham: &Array2<f64>) -> (Array1<f64>, Array2<f64>) {
     let mut info: i32 = 0;
     unsafe {
         dgeev(
-            b'N',                        // Don't calculate left eigenvectors
-            b'V',                        // Do calculate the right eigenvectors
-            ham_size,                    // The dimensions of the Hamiltonian
-            ham.as_slice_mut().unwrap(), // The underlying data in the Hamiltonian array
+            b'N',                                   // Don't calculate left eigenvectors
+            b'V',                                   // Do calculate the right eigenvectors
+            ham_size,                               // The dimensions of the Hamiltonian
+            ham.to_owned().as_slice_mut().unwrap(), // The underlying data in the Hamiltonian array
             ham_size,                    // The "leading" dimension of `ham`, `ham` is square
             e_vals_real.as_mut_slice(),  // The place to put the real parts of the eigenvalues
             &mut e_vals_imag,            // The place to put the imaginary parts of the eigenvalues
@@ -213,9 +213,9 @@ pub fn compute_stick_spectrum(
     mus: ArrayView2<f64>,
     pos: ArrayView2<f64>,
 ) -> StickSpectrum {
-    let (e_vals, e_vecs) = diagonalize(&ham.to_owned());
-    let exc_mus = exciton_dipole_moments(&e_vecs, &mus.to_owned());
-    let stick_abs = stick_abs_single(&exc_mus);
+    let (e_vals, e_vecs) = diagonalize(ham);
+    let exc_mus = exciton_dipole_moments(e_vecs.view(), mus);
+    let stick_abs = stick_abs_single(exc_mus.view());
     let stick_cd = stick_cd_single(e_vecs.view(), mus.view(), pos.view(), e_vals.view());
     StickSpectrum {
         e_vecs,
@@ -282,11 +282,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         e_vecs: PyReadonlyArray2<f64>,
         pig_mus: PyReadonlyArray2<f64>,
     ) -> &'py PyArray2<f64> {
-        exciton_dipole_moments(
-            &e_vecs.as_array().to_owned(),
-            &pig_mus.as_array().to_owned(),
-        )
-        .into_pyarray(py)
+        exciton_dipole_moments(e_vecs.as_array().view(), pig_mus.as_array().view()).into_pyarray(py)
     }
 
     /// Compute the absorbance stick spectrum
@@ -295,7 +291,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     #[pyfn(m)]
     #[pyo3(name = "stick_abs_single")]
     fn stick_abs_single_py<'py>(py: Python<'py>, mus: PyReadonlyArray2<f64>) -> &'py PyArray1<f64> {
-        stick_abs_single(&mus.as_array().to_owned()).into_pyarray(py)
+        stick_abs_single(mus.as_array().view()).into_pyarray(py)
     }
 
     /// Compute the CD stick spectrum
@@ -536,7 +532,7 @@ mod test {
         let ham = load_ham();
         let good_e_vals = load_eigenvalues();
         let good_e_vecs = load_eigenvectors();
-        let (test_e_vals, test_e_vecs) = diagonalize(&ham);
+        let (test_e_vals, test_e_vecs) = diagonalize(ham.view());
         println!("{}", test_e_vecs);
         assert_abs_diff_eq!(test_e_vals, good_e_vals, epsilon = 1.0);
         assert_relative_eq!(test_e_vecs, good_e_vecs, epsilon = 1e-4);
@@ -546,7 +542,7 @@ mod test {
     fn computes_brixner_exciton_dipole_moments() {
         let e_vecs = load_eigenvectors();
         let dipole_moments = load_dipole_moments();
-        let test_exc_dipole_moments = exciton_dipole_moments(&e_vecs, &dipole_moments);
+        let test_exc_dipole_moments = exciton_dipole_moments(e_vecs.view(), dipole_moments.view());
         let good_exc_dipole_moments = load_exciton_dipole_moments();
         assert_abs_diff_eq!(
             test_exc_dipole_moments,
@@ -558,7 +554,7 @@ mod test {
     #[test]
     fn computes_brixner_stick_abs() {
         let exciton_dpm = load_exciton_dipole_moments();
-        let test_stick_abs = stick_abs_single(&exciton_dpm);
+        let test_stick_abs = stick_abs_single(exciton_dpm.view());
         let good_stick_abs = load_dipole_strengths();
         assert_abs_diff_eq!(test_stick_abs, good_stick_abs, epsilon = 1e-4);
     }
