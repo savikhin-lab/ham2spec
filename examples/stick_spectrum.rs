@@ -3,7 +3,7 @@ use ham2spec::compute_stick_spectrum;
 use numpy::ndarray::{Array1, Array2};
 
 // These are known-good results we'll test against
-const BRIXNER_HAM: [f32; 49] = [
+const BRIXNER_HAM: [f64; 49] = [
     // 7x7 matrix unraveled
     1.242000000000000000e+04,
     -1.060000000000000000e+02,
@@ -55,7 +55,7 @@ const BRIXNER_HAM: [f32; 49] = [
     3.200000000000000000e+01,
     1.240000000000000000e+04,
 ];
-const BRIXNER_DIPOLE_MOMENTS: [f32; 21] = [
+const BRIXNER_DIPOLE_MOMENTS: [f64; 21] = [
     // 7x3 matrix unraveled, one dipole moment per row
     -7.409999999999999920e-01,
     -5.605999999999999872e-01,
@@ -79,7 +79,7 @@ const BRIXNER_DIPOLE_MOMENTS: [f32; 21] = [
     -7.083000000000000407e-01,
     -5.030999999999999917e-01,
 ];
-const BRIXNER_PIG_POS: [f32; 21] = [
+const BRIXNER_PIG_POS: [f64; 21] = [
     // 7x3 matrix unraveled, one position vector per row
     2.625349998474121094e+01,
     2.782999992370605469e+00,
