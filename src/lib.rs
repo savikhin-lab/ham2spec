@@ -92,11 +92,11 @@ pub fn stick_abs_single(mus: ArrayView2<f64>) -> Array1<f64> {
 ///
 /// The eigenvectors must be arranged into columns, and the pigment dipole moments
 /// must be arranged into rows. See [`compute_stick_spectrum`] for the expected
-/// layout of `mus` and `pos`.
+/// layout of `mus` and `rs`.
 pub fn stick_cd_single(
     e_vecs: ArrayView2<f64>,
     mus: ArrayView2<f64>,
-    pos: ArrayView2<f64>,
+    rs: ArrayView2<f64>,
     energies: ArrayView1<f64>,
 ) -> Array1<f64> {
     let coeffs: Vec<f64> = energies
@@ -108,7 +108,7 @@ pub fn stick_cd_single(
         .collect();
     let mut cd = Array1::zeros(energies.raw_dim());
     let n_pigs = e_vecs.ncols();
-    let r_mu_cross_cache = populate_r_mu_cross_cache(mus, pos);
+    let r_mu_cross_cache = populate_r_mu_cross_cache(mus, rs);
     for i in 0..n_pigs {
         for j in 0..n_pigs {
             for k in j..n_pigs {
@@ -124,13 +124,13 @@ pub fn stick_cd_single(
 ///
 /// These values are used in each iteration of the CD calculation but do not
 /// change between iterations.
-pub fn populate_r_mu_cross_cache(mus: ArrayView2<f64>, pos: ArrayView2<f64>) -> Array2<f64> {
+pub fn populate_r_mu_cross_cache(mus: ArrayView2<f64>, rs: ArrayView2<f64>) -> Array2<f64> {
     let n = mus.nrows();
     let mut cache = Array2::zeros((n, n));
     for i in 0..n {
         for j in (i + 1)..n {
-            let r_i = pos.row(i);
-            let r_j = pos.row(j);
+            let r_i = rs.row(i);
+            let r_j = rs.row(j);
             let r = &r_i - &r_j;
             let mu_i = mus.row(i);
             let mu_j = mus.row(j);
@@ -211,12 +211,12 @@ pub fn diagonalize(ham: ArrayView2<f64>) -> (Array1<f64>, Array2<f64>) {
 pub fn compute_stick_spectrum(
     ham: ArrayView2<f64>,
     mus: ArrayView2<f64>,
-    pos: ArrayView2<f64>,
+    rs: ArrayView2<f64>,
 ) -> StickSpectrum {
     let (e_vals, e_vecs) = diagonalize(ham);
     let exc_mus = exciton_dipole_moments(e_vecs.view(), mus);
     let stick_abs = stick_abs_single(exc_mus.view());
-    let stick_cd = stick_cd_single(e_vecs.view(), mus.view(), pos.view(), e_vals.view());
+    let stick_cd = stick_cd_single(e_vecs.view(), mus.view(), rs.view(), e_vals.view());
     StickSpectrum {
         e_vecs,
         e_vals,
@@ -256,10 +256,10 @@ fn abs_at_x(x: f64, s_sq: f64, energies: ArrayView1<f64>, strengths: ArrayView1<
 fn compute_broadened_spectrum_from_ham(
     ham: ArrayView2<f64>,
     mus: ArrayView2<f64>,
-    pos: ArrayView2<f64>,
+    rs: ArrayView2<f64>,
     config: &BroadeningConfig,
 ) -> BroadenedSpectrum {
-    let stick = compute_stick_spectrum(ham, mus, pos);
+    let stick = compute_stick_spectrum(ham, mus, rs);
     compute_broadened_spectrum_from_stick(
         stick.e_vals.view(),
         stick.stick_abs.view(),
@@ -298,7 +298,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     ///
     /// `e_vecs`: An NxN array of eigenvectors of the Hamiltonian, one vector per column
     /// `mus`: An Nx3 array of dipole moments, one row for each pigment
-    /// `pos`: An Nx3 array of positions, one row for each pigment
+    /// `rs`: An Nx3 array of positions, one row for each pigment
     /// `energies`: An Nx1 array of eigenvalues of the Hamiltonian
     #[pyfn(m)]
     #[pyo3(name = "stick_cd_single")]
@@ -306,13 +306,13 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         py: Python<'py>,
         e_vecs: PyReadonlyArray2<f64>,
         mus: PyReadonlyArray2<f64>,
-        pos: PyReadonlyArray2<f64>,
+        rs: PyReadonlyArray2<f64>,
         energies: PyReadonlyArray1<f64>,
     ) -> &'py PyArray1<f64> {
         stick_cd_single(
             e_vecs.as_array(),
             mus.as_array(),
-            pos.as_array(),
+            rs.as_array(),
             energies.as_array(),
         )
         .into_pyarray(py)
@@ -322,16 +322,16 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     ///
     /// `ham`: An NxN Hamiltonian matrix
     /// `mus`: An Nx3 array of dipole moments, one row for each pigment
-    /// `pos`: An Nx3 array of positions, one row for each pigment
+    /// `rs`: An Nx3 array of positions, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "compute_stick_spectrum")]
     fn compute_stick_spectrum_py<'py>(
         py: Python<'py>,
         ham: PyReadonlyArray2<f64>,
-        pig_mus: PyReadonlyArray2<f64>,
-        pig_pos: PyReadonlyArray2<f64>,
+        mus: PyReadonlyArray2<f64>,
+        rs: PyReadonlyArray2<f64>,
     ) -> &'py PyDict {
-        let sticks = compute_stick_spectrum(ham.as_array(), pig_mus.as_array(), pig_pos.as_array());
+        let sticks = compute_stick_spectrum(ham.as_array(), mus.as_array(), rs.as_array());
         let dict = PyDict::new(py);
         dict.set_item("e_vals", sticks.e_vals.into_pyarray(py))
             .unwrap();
@@ -384,20 +384,24 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     /// Compute the broadened spectra of a single Hamiltonian
+    ///
+    /// `ham`: An NxN Hamiltonian matrix
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
+    /// `rs`: An Nx3 array of positions, one row for each pigment
     #[pyfn(m)]
     #[pyo3(name = "compute_broadened_spectrum_from_ham")]
     fn compute_broadened_spectrum_from_ham_py<'py>(
         py: Python<'py>,
         ham: PyReadonlyArray2<f64>,
-        pig_mus: PyReadonlyArray2<f64>,
-        pig_pos: PyReadonlyArray2<f64>,
+        mus: PyReadonlyArray2<f64>,
+        rs: PyReadonlyArray2<f64>,
         config: PyObject,
     ) -> PyResult<&'py PyDict> {
         let b_config: BroadeningConfig = config.extract(py)?;
         let broadened = compute_broadened_spectrum_from_ham(
             ham.as_array(),
-            pig_mus.as_array(),
-            pig_pos.as_array(),
+            mus.as_array(),
+            rs.as_array(),
             &b_config,
         );
         let dict = PyDict::new(py);
