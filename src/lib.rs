@@ -301,7 +301,7 @@ fn abs_at_x(x: f64, s_sq: f64, energies: ArrayView1<f64>, strengths: ArrayView1<
 }
 
 /// Computes the broadened spectra of a single Hamiltonian
-fn compute_broadened_spectrum_from_ham(
+pub fn compute_broadened_spectrum_from_ham(
     ham: ArrayView2<f64>,
     mus: ArrayView2<f64>,
     rs: ArrayView2<f64>,
@@ -314,6 +314,43 @@ fn compute_broadened_spectrum_from_ham(
         stick.stick_cd.view(),
         config,
     )
+}
+
+/// Compute a broadened spectrum from multiple Hamiltonians
+///
+/// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
+/// `mus`: An mxNx3 array of `m` dipole moments
+/// `rs`: An mxNx3 array of `m` pigment positions
+pub fn compute_broadened_spectra(
+    hams: ArrayView3<f64>,
+    mus: ArrayView3<f64>,
+    rs: ArrayView3<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let x = Array::range(config.x_from, config.x_to, config.x_step);
+    let n_hams = hams.dim().0;
+    let mut abs_arr = Array2::zeros((x.dim(), n_hams));
+    let mut cd_arr = Array2::zeros((x.dim(), n_hams));
+    Zip::from(abs_arr.columns_mut())
+        .and(cd_arr.columns_mut())
+        .and(hams.axis_iter(Axis(0)))
+        .and(mus.axis_iter(Axis(0)))
+        .and(rs.axis_iter(Axis(0)))
+        .for_each(|mut abs_col, mut cd_col, h, m, r| {
+            let stick = compute_stick_spectrum(h, m, r);
+            let broadened = compute_broadened_spectrum_from_stick(
+                stick.e_vals.view(),
+                stick.stick_abs.view(),
+                stick.stick_cd.view(),
+                config,
+            );
+            abs_col.assign(&broadened.abs);
+            cd_col.assign(&broadened.cd);
+        });
+    // Unwrapping because we know the length of the axis can't be zero
+    let abs = abs_arr.mean_axis(Axis(1)).unwrap();
+    let cd = cd_arr.mean_axis(Axis(1)).unwrap();
+    BroadenedSpectrum { x, abs, cd }
 }
 
 /// Compute absorbance and CD spectra from first principles.
@@ -668,5 +705,27 @@ mod test {
             assert_abs_diff_eq!(dipole_strengths, s.stick_abs, epsilon = 1e-4);
             assert_abs_diff_eq!(rotational_strengths, s.stick_cd, epsilon = 1e-4);
         }
+    }
+
+    #[test]
+    fn computes_multiple_broadened_spectra() {
+        let n_hams = 100;
+        let ham = load_ham();
+        let mus = load_dipole_moments();
+        let rs = load_positions();
+        let abs = load_abs();
+        let cd = load_cd();
+        let mut ham_multi = Array3::zeros((n_hams, 7, 7));
+        let mut mus_multi = Array3::zeros((n_hams, 7, 3));
+        let mut rs_multi = Array3::zeros((n_hams, 7, 3));
+        for i in 0..n_hams {
+            ham_multi.slice_mut(s![i, .., ..]).assign(&ham);
+            mus_multi.slice_mut(s![i, .., ..]).assign(&mus);
+            rs_multi.slice_mut(s![i, .., ..]).assign(&rs);
+        }
+        let spec =
+            compute_broadened_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view(), &CONFIG);
+        assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
+        assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
     }
 }
