@@ -79,6 +79,17 @@ pub struct BroadenedSpectrum {
     pub cd: Array1<f64>,
 }
 
+impl ToPyObject for BroadenedSpectrum {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        let dict = PyDict::new(py);
+        // Don't mind the `unwrap`s here, setting a dictionary entry is unlikely to fail
+        dict.set_item("x", self.x.to_pyarray(py)).unwrap();
+        dict.set_item("abs", self.abs.to_pyarray(py)).unwrap();
+        dict.set_item("cd", self.cd.to_pyarray(py)).unwrap();
+        dict.to_object(py)
+    }
+}
+
 /// Compute the dot product of 2 3-vectors
 fn dot(a: ArrayView1<f64>, b: ArrayView1<f64>) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -460,6 +471,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     /// `ham`: An NxN Hamiltonian matrix
     /// `mus`: An Nx3 array of dipole moments, one row for each pigment
     /// `rs`: An Nx3 array of positions, one row for each pigment
+    /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
     #[pyfn(m)]
     #[pyo3(name = "compute_broadened_spectrum_from_ham")]
     fn compute_broadened_spectrum_from_ham_py<'py>(
@@ -498,6 +510,26 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     ) -> &'py PyList {
         let sticks = compute_stick_spectra(hams.as_array(), mus.as_array(), rs.as_array());
         PyList::new(py, sticks)
+    }
+
+    /// Compute the broadened spectra from multiple Hamiltonians
+    ///
+    /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
+    /// `mus`: An mxNx3 array of `m` dipole moments
+    /// `rs`: An mxNx3 array of `m` pigment positions
+    /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
+    #[pyfn(m)]
+    #[pyo3(name = "compute_broadened_spectra")]
+    fn compute_broadened_spectra_py<'py>(
+        py: Python<'py>,
+        hams: PyReadonlyArray3<f64>,
+        mus: PyReadonlyArray3<f64>,
+        rs: PyReadonlyArray3<f64>,
+        config: BroadeningConfig,
+    ) -> PyObject {
+        let spec =
+            compute_broadened_spectra(hams.as_array(), mus.as_array(), rs.as_array(), &config);
+        spec.to_object(py)
     }
 
     Ok(())
