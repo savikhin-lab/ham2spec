@@ -5,10 +5,13 @@ use lapack::dgeev;
 use numpy::ndarray::{
     arr1, arr2, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, Zip,
 };
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
+    ToPyArray,
+};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 /// A stick spectrum computed from a single Hamiltonian and associated pigments.
 #[derive(Debug, Clone)]
@@ -29,14 +32,20 @@ pub struct StickSpectrum {
     pub stick_cd: Array1<f64>,
 }
 
-fn stick_to_dict<'py>(py: Python<'py>, s: StickSpectrum) -> PyResult<&'py PyDict> {
-    let dict = PyDict::new(py);
-    dict.set_item("e_vals", s.e_vals.into_pyarray(py))?;
-    dict.set_item("e_vecs", s.e_vecs.into_pyarray(py))?;
-    dict.set_item("exciton_mus", s.mus.into_pyarray(py))?;
-    dict.set_item("stick_abs", s.stick_abs.into_pyarray(py))?;
-    dict.set_item("stick_cd", s.stick_cd.into_pyarray(py))?;
-    Ok(dict)
+impl ToPyObject for StickSpectrum {
+    fn to_object(&self, py: Python<'_>) -> PyObject {
+        let dict = PyDict::new(py);
+        // Don't mind the `unwrap`s here, setting a dictionary entry is unlikely to fail
+        dict.set_item("e_vals", self.e_vals.to_pyarray(py)).unwrap();
+        dict.set_item("e_vecs", self.e_vecs.to_pyarray(py)).unwrap();
+        dict.set_item("exciton_mus", self.mus.to_pyarray(py))
+            .unwrap();
+        dict.set_item("stick_abs", self.stick_abs.to_pyarray(py))
+            .unwrap();
+        dict.set_item("stick_cd", self.stick_cd.to_pyarray(py))
+            .unwrap();
+        dict.to_object(py)
+    }
 }
 
 /// The configuration for computing a broadened spectrum from a stick spectrum
@@ -369,9 +378,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         ham: PyReadonlyArray2<f64>,
         mus: PyReadonlyArray2<f64>,
         rs: PyReadonlyArray2<f64>,
-    ) -> PyResult<&'py PyDict> {
+    ) -> PyObject {
         let stick = compute_stick_spectrum(ham.as_array(), mus.as_array(), rs.as_array());
-        stick_to_dict(py, stick)
+        stick.to_object(py)
     }
 
     /// Compute the broadened spectra of a single stick spectrum
@@ -437,6 +446,23 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         dict.set_item("abs", broadened.abs.into_pyarray(py))?;
         dict.set_item("cd", broadened.cd.into_pyarray(py))?;
         Ok(dict)
+    }
+
+    /// Compute the stick spectra of multiple Hamiltonians
+    ///
+    /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
+    /// `mus`: An mxNx3 array of `m` dipole moments
+    /// `rs`: An mxNx3 array of `m` pigment positions
+    #[pyfn(m)]
+    #[pyo3(name = "compute_stick_spectra")]
+    fn compute_stick_spectra_py<'py>(
+        py: Python<'py>,
+        hams: PyReadonlyArray3<f64>,
+        mus: PyReadonlyArray3<f64>,
+        rs: PyReadonlyArray3<f64>,
+    ) -> &'py PyList {
+        let sticks = compute_stick_spectra(hams.as_array(), mus.as_array(), rs.as_array());
+        PyList::new(py, sticks)
     }
 
     Ok(())
