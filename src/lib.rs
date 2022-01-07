@@ -224,7 +224,7 @@ pub fn diagonalize(ham: ArrayView2<f64>) -> (Array1<f64>, Array2<f64>) {
     (e_vals, e_vecs)
 }
 
-/// Compute the stick spectra of a Hamiltonian
+/// Compute the stick spectrum of a Hamiltonian
 ///
 /// `ham`: An NxN Hamiltonian matrix
 /// `mus`: An Nx3 array of dipole moments, one row for each pigment
