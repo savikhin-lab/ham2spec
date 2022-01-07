@@ -3,7 +3,7 @@ extern crate lapack_src;
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::dgeev;
 use numpy::ndarray::{
-    arr1, arr2, s, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, Zip,
+    arr1, arr2, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, Zip,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyKeyError;
@@ -27,6 +27,16 @@ pub struct StickSpectrum {
 
     /// The circular dichroism (rotational strength) of each exciton.
     pub stick_cd: Array1<f64>,
+}
+
+fn stick_to_dict<'py>(py: Python<'py>, s: StickSpectrum) -> PyResult<&'py PyDict> {
+    let dict = PyDict::new(py);
+    dict.set_item("e_vals", s.e_vals.into_pyarray(py))?;
+    dict.set_item("e_vecs", s.e_vecs.into_pyarray(py))?;
+    dict.set_item("exciton_mus", s.mus.into_pyarray(py))?;
+    dict.set_item("stick_abs", s.stick_abs.into_pyarray(py))?;
+    dict.set_item("stick_cd", s.stick_cd.into_pyarray(py))?;
+    Ok(dict)
 }
 
 /// The configuration for computing a broadened spectrum from a stick spectrum
@@ -359,20 +369,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         ham: PyReadonlyArray2<f64>,
         mus: PyReadonlyArray2<f64>,
         rs: PyReadonlyArray2<f64>,
-    ) -> &'py PyDict {
-        let sticks = compute_stick_spectrum(ham.as_array(), mus.as_array(), rs.as_array());
-        let dict = PyDict::new(py);
-        dict.set_item("e_vals", sticks.e_vals.into_pyarray(py))
-            .unwrap();
-        dict.set_item("e_vecs", sticks.e_vecs.into_pyarray(py))
-            .unwrap();
-        dict.set_item("exciton_mus", sticks.mus.into_pyarray(py))
-            .unwrap();
-        dict.set_item("stick_abs", sticks.stick_abs.into_pyarray(py))
-            .unwrap();
-        dict.set_item("stick_cd", sticks.stick_cd.into_pyarray(py))
-            .unwrap();
-        dict
+    ) -> PyResult<&'py PyDict> {
+        let stick = compute_stick_spectrum(ham.as_array(), mus.as_array(), rs.as_array());
+        stick_to_dict(py, stick)
     }
 
     /// Compute the broadened spectra of a single stick spectrum
@@ -446,8 +445,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ndarray::Array3;
-    use numpy::ndarray::Array2;
+    use ndarray::{s, Array2, Array3};
 
     fn load_ham() -> Array2<f64> {
         let contents = include_str!("../validation_data/hamiltonian.txt");
