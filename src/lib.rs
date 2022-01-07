@@ -2,7 +2,9 @@ extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::dgeev;
-use numpy::ndarray::{arr1, Array, Array1, Array2, ArrayView1, ArrayView2, Zip};
+use numpy::ndarray::{
+    arr1, arr2, s, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, Zip,
+};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
@@ -226,6 +228,33 @@ pub fn compute_stick_spectrum(
     }
 }
 
+/// Compute the stick spectra of multiple Hamiltonians
+///
+/// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
+/// `mus`: An mxNx3 array of `m` dipole moments
+/// `rs`: An mxNx3 array of `m` pigment positions
+pub fn compute_stick_spectra(
+    hams: ArrayView3<f64>,
+    mus: ArrayView3<f64>,
+    rs: ArrayView3<f64>,
+) -> Vec<StickSpectrum> {
+    let dummy_stick = StickSpectrum {
+        e_vals: arr1(&[]),
+        e_vecs: arr2(&[[], []]),
+        mus: arr2(&[[], []]),
+        stick_abs: arr1(&[]),
+        stick_cd: arr1(&[]),
+    };
+    let mut sticks: Vec<StickSpectrum> = Vec::with_capacity(hams.dim().0);
+    sticks.resize(hams.dim().0, dummy_stick);
+    Zip::from(hams.axis_iter(Axis(0)))
+        .and(mus.axis_iter(Axis(0)))
+        .and(rs.axis_iter(Axis(0)))
+        .and(&mut sticks)
+        .for_each(|h, m, r, s| *s = compute_stick_spectrum(h, m, r));
+    sticks
+}
+
 /// Compute the broadened spectrum of a stick spectrum
 pub fn compute_broadened_spectrum_from_stick(
     energies: ArrayView1<f64>,
@@ -417,6 +446,7 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use ndarray::Array3;
     use numpy::ndarray::Array2;
 
     fn load_ham() -> Array2<f64> {
@@ -591,5 +621,28 @@ mod test {
         assert_abs_diff_eq!(x, spec.x, epsilon = 1e-4);
         assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
         assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
+    }
+
+    #[test]
+    fn computes_multiple_stick_spectra() {
+        let n_hams = 100;
+        let ham = load_ham();
+        let mus = load_dipole_moments();
+        let rs = load_positions();
+        let dipole_strengths = load_dipole_strengths();
+        let rotational_strengths = load_rotational_strengths();
+        let mut ham_multi = Array3::zeros((n_hams, 7, 7));
+        let mut mus_multi = Array3::zeros((n_hams, 7, 3));
+        let mut rs_multi = Array3::zeros((n_hams, 7, 3));
+        for i in 0..n_hams {
+            ham_multi.slice_mut(s![i, .., ..]).assign(&ham);
+            mus_multi.slice_mut(s![i, .., ..]).assign(&mus);
+            rs_multi.slice_mut(s![i, .., ..]).assign(&rs);
+        }
+        let sticks = compute_stick_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view());
+        for s in sticks.iter() {
+            assert_abs_diff_eq!(dipole_strengths, s.stick_abs, epsilon = 1e-4);
+            assert_abs_diff_eq!(rotational_strengths, s.stick_cd, epsilon = 1e-4);
+        }
     }
 }
