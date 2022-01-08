@@ -345,7 +345,7 @@ pub fn compute_broadened_spectra(
         .and(hams.axis_iter(Axis(0)))
         .and(mus.axis_iter(Axis(0)))
         .and(rs.axis_iter(Axis(0)))
-        .for_each(|mut abs_col, mut cd_col, h, m, r| {
+        .par_for_each(|mut abs_col, mut cd_col, h, m, r| {
             let stick = compute_stick_spectrum(h, m, r);
             let broadened = compute_broadened_spectrum_from_stick(
                 stick.e_vals.view(),
