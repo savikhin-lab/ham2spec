@@ -64,6 +64,14 @@ pub struct BroadeningConfig {
     /// The bandwidth for each transition in wavenumbers (cm^-1)
     #[pyo3(attribute("bandwidth"))]
     pub bw: f64,
+
+    /// The absorption bandwidths in wavenumbers (cm^-1) when using heterogenous bandwidths
+    #[pyo3(attribute("abs_bws"))]
+    pub abs_bws: Vec<f64>,
+
+    /// The CD bandwidths in wavenumbers (cm^-1) when using heterogenous bandwidths
+    #[pyo3(attribute("cd_bws"))]
+    pub cd_bws: Vec<f64>,
 }
 
 /// A broadened spectrum
@@ -639,12 +647,16 @@ mod test {
         Array1::from_vec(data)
     }
 
-    const CONFIG: BroadeningConfig = BroadeningConfig {
-        x_from: 11790.0,
-        x_to: 13300.0,
-        x_step: 1.0,
-        bw: 120.0,
-    };
+    fn load_config() -> BroadeningConfig {
+        BroadeningConfig {
+            x_from: 11790.0,
+            x_to: 13300.0,
+            x_step: 1.0,
+            bw: 120.0,
+            abs_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+            cd_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+        }
+    }
 
     #[test]
     fn correctly_loads_hamiltonian() {
@@ -708,7 +720,8 @@ mod test {
         let ham = load_ham();
         let mus = load_dipole_moments();
         let rs = load_positions();
-        let spec = compute_broadened_spectrum_from_ham(ham.view(), mus.view(), rs.view(), &CONFIG);
+        let config = load_config();
+        let spec = compute_broadened_spectrum_from_ham(ham.view(), mus.view(), rs.view(), &config);
         assert_abs_diff_eq!(x, spec.x, epsilon = 1e-4);
         assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
         assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
@@ -753,8 +766,9 @@ mod test {
             mus_multi.slice_mut(s![i, .., ..]).assign(&mus);
             rs_multi.slice_mut(s![i, .., ..]).assign(&rs);
         }
+        let config = load_config();
         let spec =
-            compute_broadened_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view(), &CONFIG);
+            compute_broadened_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view(), &config);
         assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
         assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
     }
