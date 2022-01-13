@@ -279,7 +279,7 @@ pub fn compute_stick_spectra(
         .and(mus.axis_iter(Axis(0)))
         .and(rs.axis_iter(Axis(0)))
         .and(&mut sticks)
-        .for_each(|h, m, r, s| *s = compute_stick_spectrum(h, m, r));
+        .par_for_each(|h, m, r, s| *s = compute_stick_spectrum(h, m, r));
     sticks
 }
 
