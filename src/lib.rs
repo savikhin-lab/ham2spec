@@ -486,6 +486,39 @@ pub fn compute_broadened_spectra(
     BroadenedSpectrum { x, abs, cd }
 }
 
+/// Compute the broadened spectra of multiple Hamiltonians with different bandwidths for each transition
+pub fn compute_het_broadened_spectra(
+    hams: ArrayView3<f64>,
+    mus: ArrayView3<f64>,
+    rs: ArrayView3<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let x = Array::range(config.x_from, config.x_to, config.x_step);
+    let n_hams = hams.dim().0;
+    let mut abs_arr = Array2::zeros((x.dim(), n_hams));
+    let mut cd_arr = Array2::zeros((x.dim(), n_hams));
+    Zip::from(abs_arr.columns_mut())
+        .and(cd_arr.columns_mut())
+        .and(hams.axis_iter(Axis(0)))
+        .and(mus.axis_iter(Axis(0)))
+        .and(rs.axis_iter(Axis(0)))
+        .par_for_each(|mut abs_col, mut cd_col, h, m, r| {
+            let stick = compute_stick_spectrum(h, m, r);
+            let broadened = compute_het_broadened_spectrum_from_stick(
+                stick.e_vals.view(),
+                stick.stick_abs.view(),
+                stick.stick_cd.view(),
+                config,
+            );
+            abs_col.assign(&broadened.abs);
+            cd_col.assign(&broadened.cd);
+        });
+    // Unwrapping because we know the length of the axis can't be zero
+    let abs = abs_arr.mean_axis(Axis(1)).unwrap();
+    let cd = cd_arr.mean_axis(Axis(1)).unwrap();
+    BroadenedSpectrum { x, abs, cd }
+}
+
 /// Compute absorbance and CD spectra from first principles.
 #[pymodule]
 fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -719,6 +752,26 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     ) -> PyObject {
         let spec =
             compute_broadened_spectra(hams.as_array(), mus.as_array(), rs.as_array(), &config);
+        spec.to_object(py)
+    }
+
+    /// Compute the broadened spectra from multiple Hamiltonians
+    ///
+    /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
+    /// `mus`: An mxNx3 array of `m` dipole moments
+    /// `rs`: An mxNx3 array of `m` pigment positions
+    /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
+    #[pyfn(m)]
+    #[pyo3(name = "compute_het_broadened_spectra")]
+    fn compute_het_broadened_spectra_py<'py>(
+        py: Python<'py>,
+        hams: PyReadonlyArray3<f64>,
+        mus: PyReadonlyArray3<f64>,
+        rs: PyReadonlyArray3<f64>,
+        config: BroadeningConfig,
+    ) -> PyObject {
+        let spec =
+            compute_het_broadened_spectra(hams.as_array(), mus.as_array(), rs.as_array(), &config);
         spec.to_object(py)
     }
 
