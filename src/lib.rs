@@ -454,7 +454,7 @@ pub fn compute_het_broadened_spectrum_from_ham(
 /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
 /// `mus`: An mxNx3 array of `m` dipole moments
 /// `rs`: An mxNx3 array of `m` pigment positions
-pub fn compute_broadened_spectra(
+pub fn compute_broadened_spectrum_from_hams(
     hams: ArrayView3<f64>,
     mus: ArrayView3<f64>,
     rs: ArrayView3<f64>,
@@ -487,7 +487,7 @@ pub fn compute_broadened_spectra(
 }
 
 /// Compute the broadened spectra of multiple Hamiltonians with different bandwidths for each transition
-pub fn compute_het_broadened_spectra(
+pub fn compute_het_broadened_spectrum_from_hams(
     hams: ArrayView3<f64>,
     mus: ArrayView3<f64>,
     rs: ArrayView3<f64>,
@@ -735,23 +735,27 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         PyList::new(py, sticks)
     }
 
-    /// Compute the broadened spectra from multiple Hamiltonians
+    /// Compute the broadened spectrum from multiple Hamiltonians
     ///
     /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
     /// `mus`: An mxNx3 array of `m` dipole moments
     /// `rs`: An mxNx3 array of `m` pigment positions
     /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
     #[pyfn(m)]
-    #[pyo3(name = "compute_broadened_spectra")]
-    fn compute_broadened_spectra_py<'py>(
+    #[pyo3(name = "compute_broadened_spectrum_from_hams")]
+    fn compute_broadened_spectrum_from_hams_py<'py>(
         py: Python<'py>,
         hams: PyReadonlyArray3<f64>,
         mus: PyReadonlyArray3<f64>,
         rs: PyReadonlyArray3<f64>,
         config: BroadeningConfig,
     ) -> PyObject {
-        let spec =
-            compute_broadened_spectra(hams.as_array(), mus.as_array(), rs.as_array(), &config);
+        let spec = compute_broadened_spectrum_from_hams(
+            hams.as_array(),
+            mus.as_array(),
+            rs.as_array(),
+            &config,
+        );
         spec.to_object(py)
     }
 
@@ -762,16 +766,20 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
     /// `rs`: An mxNx3 array of `m` pigment positions
     /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
     #[pyfn(m)]
-    #[pyo3(name = "compute_het_broadened_spectra")]
-    fn compute_het_broadened_spectra_py<'py>(
+    #[pyo3(name = "compute_het_broadened_spectrum_from_hams")]
+    fn compute_het_broadened_spectrum_from_hams_py<'py>(
         py: Python<'py>,
         hams: PyReadonlyArray3<f64>,
         mus: PyReadonlyArray3<f64>,
         rs: PyReadonlyArray3<f64>,
         config: BroadeningConfig,
     ) -> PyObject {
-        let spec =
-            compute_het_broadened_spectra(hams.as_array(), mus.as_array(), rs.as_array(), &config);
+        let spec = compute_het_broadened_spectrum_from_hams(
+            hams.as_array(),
+            mus.as_array(),
+            rs.as_array(),
+            &config,
+        );
         spec.to_object(py)
     }
 
@@ -1003,8 +1011,12 @@ mod test {
             rs_multi.slice_mut(s![i, .., ..]).assign(&rs);
         }
         let config = load_config();
-        let spec =
-            compute_broadened_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view(), &config);
+        let spec = compute_broadened_spectrum_from_hams(
+            ham_multi.view(),
+            mus_multi.view(),
+            rs_multi.view(),
+            &config,
+        );
         assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
         assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
     }
