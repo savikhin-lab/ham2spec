@@ -299,8 +299,15 @@ pub fn compute_stick_spectra(
     sticks
 }
 
-fn sigma_squared(bw: f64) -> f64 {
-    bw.powi(2) / (4. * 2_f64.ln())
+/// Converts a bandwidth given as FWHM into 2*sigma^2
+///
+/// This is the denominator of the exponent of a Gaussian:
+/// e^(-(x - mu)^2 / (2 * sigma^2))
+///
+/// The formula for converting between FWHM and sigma is:
+/// FWHM = sigma * sqrt(8 * ln(2))
+fn gauss_denom(fwhm: f64) -> f64 {
+    fwhm.powi(2) / (4. * 2_f64.ln())
 }
 
 /// Computes each band and adds it to the spectrum
@@ -311,8 +318,8 @@ pub fn add_bands(
     bw: f64,
     x: ArrayView1<f64>,
 ) {
-    let s_sq = sigma_squared(bw);
-    spec.assign(&x.mapv(|x_i| abs_at_x(x_i, s_sq, energies, stick_strengths)));
+    let denom = gauss_denom(bw);
+    spec.assign(&x.mapv(|x_i| abs_at_x(x_i, denom, energies, stick_strengths)));
 }
 
 /// Determine the indices for which you actually need to compute the contribution of a band
@@ -335,11 +342,11 @@ pub fn add_cutoff_bands(
         .and(stick_strengths)
         .and(bws)
         .for_each(|&e, &strength, &bw| {
+            let denom = gauss_denom(bw);
             let (lower, upper) = band_cutoff_indices(e, bw, cutoff, x.as_slice().unwrap());
-            let band = x.slice(s![lower..upper]).mapv(|x_i| {
-                let sigma_squared = bw.powi(2) / (4. * 2_f64.ln());
-                strength * (-(x_i - e).powi(2) / sigma_squared).exp()
-            });
+            let band = x
+                .slice(s![lower..upper])
+                .mapv(|x_i| strength * (-(x_i - e).powi(2) / denom).exp());
             spec.slice_mut(s![lower..upper]).add_assign(&band);
         });
 }
@@ -409,11 +416,11 @@ pub fn compute_het_broadened_spectrum_from_stick(
 ///
 /// Note, this function works just as well for circular dichroism if you supply
 /// rotational strengths instead of dipole strengths.
-fn abs_at_x(x: f64, s_sq: f64, energies: ArrayView1<f64>, strengths: ArrayView1<f64>) -> f64 {
+fn abs_at_x(x: f64, denom: f64, energies: ArrayView1<f64>, strengths: ArrayView1<f64>) -> f64 {
     Zip::from(&energies)
         .and(&strengths)
         .fold(0f64, |acc, &e, &s| {
-            acc + s * (-(x - e).powi(2) / s_sq).exp()
+            acc + s * (-(x - e).powi(2) / denom).exp()
         })
 }
 
