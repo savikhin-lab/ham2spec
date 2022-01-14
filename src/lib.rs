@@ -2,7 +2,10 @@ extern crate lapack_src;
 #[cfg(test)]
 use approx::{assert_abs_diff_eq, assert_relative_eq};
 use lapack::dgeev;
-use ndarray::{arr1, arr2, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, Axis, Zip};
+use ndarray::{
+    arr1, arr2, s, Array, Array1, Array2, ArrayView1, ArrayView2, ArrayView3, ArrayViewMut1, Axis,
+    Zip,
+};
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
     ToPyArray,
@@ -10,6 +13,7 @@ use numpy::{
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use std::ops::AddAssign;
 
 /// A stick spectrum computed from a single Hamiltonian and associated pigments.
 #[derive(Debug, Clone)]
@@ -72,6 +76,10 @@ pub struct BroadeningConfig {
     /// The CD bandwidths in wavenumbers (cm^-1) when using heterogenous bandwidths
     #[pyo3(attribute("cd_bws"))]
     pub cd_bws: Vec<f64>,
+
+    /// The number of `bw`s away from the band center outside of which calculations will be skipped
+    #[pyo3(attribute("band_cutoff"))]
+    pub band_cutoff: f64,
 }
 
 /// A broadened spectrum
@@ -291,6 +299,51 @@ pub fn compute_stick_spectra(
     sticks
 }
 
+fn sigma_squared(bw: f64) -> f64 {
+    bw.powi(2) / (4. * 2_f64.ln())
+}
+
+/// Computes each band and adds it to the spectrum
+pub fn add_bands(
+    mut spec: ArrayViewMut1<f64>,
+    energies: ArrayView1<f64>,
+    stick_strengths: ArrayView1<f64>,
+    bw: f64,
+    x: ArrayView1<f64>,
+) {
+    let s_sq = sigma_squared(bw);
+    spec.assign(&x.mapv(|x_i| abs_at_x(x_i, s_sq, energies, stick_strengths)));
+}
+
+/// Determine the indices for which you actually need to compute the contribution of a band
+pub fn band_cutoff_indices(center: f64, bw: f64, cutoff: f64, xs: &[f64]) -> (usize, usize) {
+    let lower = xs.partition_point(|&x| x < (center - cutoff * bw));
+    let upper = xs.partition_point(|&x| x < (center + cutoff * bw));
+    (lower, upper)
+}
+
+/// Computes the band and adds it to the spectrum
+pub fn add_cutoff_bands(
+    mut spec: ArrayViewMut1<f64>,
+    energies: ArrayView1<f64>,
+    stick_strengths: ArrayView1<f64>,
+    bws: &[f64],
+    cutoff: f64,
+    x: ArrayView1<f64>,
+) {
+    Zip::from(energies)
+        .and(stick_strengths)
+        .and(bws)
+        .for_each(|&e, &strength, &bw| {
+            let (lower, upper) = band_cutoff_indices(e, bw, cutoff, x.as_slice().unwrap());
+            let band = x.slice(s![lower..upper]).mapv(|x_i| {
+                let sigma_squared = bw.powi(2) / (4. * 2_f64.ln());
+                strength * (-(x_i - e).powi(2) / sigma_squared).exp()
+            });
+            spec.slice_mut(s![lower..upper]).add_assign(&band);
+        });
+}
+
 /// Compute the broadened spectrum of a stick spectrum
 pub fn compute_broadened_spectrum_from_stick(
     energies: ArrayView1<f64>,
@@ -299,9 +352,56 @@ pub fn compute_broadened_spectrum_from_stick(
     config: &BroadeningConfig,
 ) -> BroadenedSpectrum {
     let x = Array::range(config.x_from, config.x_to, config.x_step);
-    let sigma_squared = config.bw.powi(2) / (4. * 2_f64.ln());
-    let abs = x.mapv(|x_i| abs_at_x(x_i, sigma_squared, energies, dip_strengths));
-    let cd = x.mapv(|x_i| abs_at_x(x_i, sigma_squared, energies, rot_strengths));
+    let mut abs = Array1::zeros(x.dim());
+    let mut cd = Array1::zeros(x.dim());
+    // add_bands(abs.view_mut(), energies, dip_strengths, config.bw, x.view());
+    // add_bands(cd.view_mut(), energies, rot_strengths, config.bw, x.view());
+    let bws = vec![config.bw; energies.len()];
+    add_cutoff_bands(
+        abs.view_mut(),
+        energies,
+        dip_strengths,
+        bws.as_slice(),
+        config.band_cutoff,
+        x.view(),
+    );
+    add_cutoff_bands(
+        cd.view_mut(),
+        energies,
+        rot_strengths,
+        bws.as_slice(),
+        config.band_cutoff,
+        x.view(),
+    );
+    BroadenedSpectrum { x, abs, cd }
+}
+
+/// Compute the broadened spectrum of a stick spectrum with different bandwidths for each transition
+pub fn compute_het_broadened_spectrum_from_stick(
+    energies: ArrayView1<f64>,
+    dipole_strengths: ArrayView1<f64>,
+    rotational_strengths: ArrayView1<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let x = Array::range(config.x_from, config.x_to, config.x_step);
+    let mut abs = Array1::zeros(x.dim());
+    let mut cd = Array1::zeros(x.dim());
+    add_cutoff_bands(
+        abs.view_mut(),
+        energies,
+        dipole_strengths,
+        config.abs_bws.as_slice(),
+        config.band_cutoff,
+        x.view(),
+    );
+    add_cutoff_bands(
+        cd.view_mut(),
+        energies,
+        rotational_strengths,
+        config.cd_bws.as_slice(),
+        config.band_cutoff,
+        x.view(),
+    );
     BroadenedSpectrum { x, abs, cd }
 }
 
@@ -503,6 +603,43 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
         Ok(dict)
     }
 
+    /// Compute the broadened spectrum from a stick spectrum using different bandwidths for each transition
+    #[pyfn(m)]
+    #[pyo3(name = "compute_het_broadened_spectrum_from_stick")]
+    fn compute_het_broadened_spectrum_from_stick_py<'py>(
+        py: Python<'py>,
+        stick: &'py PyDict,
+        config: PyObject,
+    ) -> PyResult<&'py PyDict> {
+        let energies = stick
+            .get_item("e_vals")
+            .ok_or(PyKeyError::new_err("e_vals"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let stick_abs = stick
+            .get_item("stick_abs")
+            .ok_or(PyKeyError::new_err("stick_abs"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let stick_cd = stick
+            .get_item("stick_cd")
+            .ok_or(PyKeyError::new_err("stick_cd"))?
+            .downcast::<PyArray1<f64>>()?
+            .to_owned_array();
+        let b_config: BroadeningConfig = config.extract(py)?;
+        let broadened = compute_het_broadened_spectrum_from_stick(
+            energies.view(),
+            stick_abs.view(),
+            stick_cd.view(),
+            &b_config,
+        );
+        let dict = PyDict::new(py);
+        dict.set_item("x", broadened.x.into_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        Ok(dict)
+    }
+
     /// Compute the stick spectra of multiple Hamiltonians
     ///
     /// `ham`: An mxNxN array of `m` `NxN` Hamiltonians
@@ -655,6 +792,7 @@ mod test {
             bw: 120.0,
             abs_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
             cd_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+            band_cutoff: 3.0,
         }
     }
 
@@ -771,5 +909,50 @@ mod test {
             compute_broadened_spectra(ham_multi.view(), mus_multi.view(), rs_multi.view(), &config);
         assert_abs_diff_eq!(abs, spec.abs, epsilon = 1e-4);
         assert_abs_diff_eq!(cd, spec.cd, epsilon = 1e-4);
+    }
+
+    #[test]
+    fn finds_band_cutoff_indices() {
+        let bw = 5.0;
+        let cutoff = 1.0;
+        let center = 50.0;
+        let expected_lower = (center - bw) as usize;
+        let expected_upper = (center + bw) as usize;
+        let xs: Array1<f64> = Array1::range(0.0, 100.0, 1.0);
+        let (lower, upper) = band_cutoff_indices(center, bw, cutoff, xs.as_slice().unwrap());
+        assert_eq!(lower, expected_lower);
+        assert_eq!(upper, expected_upper);
+    }
+
+    #[test]
+    fn band_indices_are_whole_range_with_large_bw() {
+        let bw = 100.0;
+        let cutoff = 3.0;
+        let center = 50.0;
+        let expected_lower = 0;
+        let expected_upper = 100;
+        let xs: Array1<f64> = Array1::range(0.0, 100.0, 1.0);
+        let (lower, upper) = band_cutoff_indices(center, bw, cutoff, xs.as_slice().unwrap());
+        assert_eq!(lower, expected_lower);
+        assert_eq!(upper, expected_upper);
+    }
+
+    #[test]
+    fn computes_het_broadened_spectrum_from_stick() {
+        let ham = load_ham();
+        let mus = load_dipole_moments();
+        let rs = load_positions();
+        let stick = compute_stick_spectrum(ham.view(), mus.view(), rs.view());
+        let known_abs = load_abs();
+        let known_cd = load_cd();
+        let config = load_config();
+        let broadened = compute_het_broadened_spectrum_from_stick(
+            stick.e_vals.view(),
+            stick.stick_abs.view(),
+            stick.stick_cd.view(),
+            &config,
+        );
+        assert_abs_diff_eq!(broadened.abs, known_abs, epsilon = 1e-4);
+        assert_abs_diff_eq!(broadened.cd, known_cd, epsilon = 1e-4);
     }
 }
