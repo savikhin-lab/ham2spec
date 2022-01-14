@@ -417,7 +417,7 @@ fn abs_at_x(x: f64, s_sq: f64, energies: ArrayView1<f64>, strengths: ArrayView1<
         })
 }
 
-/// Computes the broadened spectra of a single Hamiltonian
+/// Compute the broadened spectra of a single Hamiltonian
 pub fn compute_broadened_spectrum_from_ham(
     ham: ArrayView2<f64>,
     mus: ArrayView2<f64>,
@@ -426,6 +426,22 @@ pub fn compute_broadened_spectrum_from_ham(
 ) -> BroadenedSpectrum {
     let stick = compute_stick_spectrum(ham, mus, rs);
     compute_broadened_spectrum_from_stick(
+        stick.e_vals.view(),
+        stick.stick_abs.view(),
+        stick.stick_cd.view(),
+        config,
+    )
+}
+
+/// Compute the broadened spectrum of a single Hamiltonian with different bandwidths for each transition
+pub fn compute_het_broadened_spectrum_from_ham(
+    ham: ArrayView2<f64>,
+    mus: ArrayView2<f64>,
+    rs: ArrayView2<f64>,
+    config: &BroadeningConfig,
+) -> BroadenedSpectrum {
+    let stick = compute_stick_spectrum(ham, mus, rs);
+    compute_het_broadened_spectrum_from_stick(
         stick.e_vals.view(),
         stick.stick_abs.view(),
         stick.stick_cd.view(),
@@ -631,6 +647,35 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
             energies.view(),
             stick_abs.view(),
             stick_cd.view(),
+            &b_config,
+        );
+        let dict = PyDict::new(py);
+        dict.set_item("x", broadened.x.into_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        Ok(dict)
+    }
+
+    /// Compute the broadened spectra of a single Hamiltonian
+    ///
+    /// `ham`: An NxN Hamiltonian matrix
+    /// `mus`: An Nx3 array of dipole moments, one row for each pigment
+    /// `rs`: An Nx3 array of positions, one row for each pigment
+    /// `config`: An object (`fmo_analysis.util.Config`) containing the configuration for broadening
+    #[pyfn(m)]
+    #[pyo3(name = "compute_het_broadened_spectrum_from_ham")]
+    fn compute_het_broadened_spectrum_from_ham_py<'py>(
+        py: Python<'py>,
+        ham: PyReadonlyArray2<f64>,
+        mus: PyReadonlyArray2<f64>,
+        rs: PyReadonlyArray2<f64>,
+        config: PyObject,
+    ) -> PyResult<&'py PyDict> {
+        let b_config: BroadeningConfig = config.extract(py)?;
+        let broadened = compute_het_broadened_spectrum_from_ham(
+            ham.as_array(),
+            mus.as_array(),
+            rs.as_array(),
             &b_config,
         );
         let dict = PyDict::new(py);
