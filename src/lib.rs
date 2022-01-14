@@ -617,9 +617,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
             &b_config,
         );
         let dict = PyDict::new(py);
-        dict.set_item("x", broadened.x.into_pyarray(py))?;
-        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
-        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        dict.set_item("x", broadened.x.to_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.to_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.to_pyarray(py))?;
         Ok(dict)
     }
 
@@ -646,9 +646,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
             &b_config,
         );
         let dict = PyDict::new(py);
-        dict.set_item("x", broadened.x.into_pyarray(py))?;
-        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
-        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        dict.set_item("x", broadened.x.to_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.to_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.to_pyarray(py))?;
         Ok(dict)
     }
 
@@ -683,9 +683,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
             &b_config,
         );
         let dict = PyDict::new(py);
-        dict.set_item("x", broadened.x.into_pyarray(py))?;
-        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
-        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        dict.set_item("x", broadened.x.to_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.to_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.to_pyarray(py))?;
         Ok(dict)
     }
 
@@ -712,9 +712,9 @@ fn ham2spec(_py: Python, m: &PyModule) -> PyResult<()> {
             &b_config,
         );
         let dict = PyDict::new(py);
-        dict.set_item("x", broadened.x.into_pyarray(py))?;
-        dict.set_item("abs", broadened.abs.into_pyarray(py))?;
-        dict.set_item("cd", broadened.cd.into_pyarray(py))?;
+        dict.set_item("x", broadened.x.to_pyarray(py))?;
+        dict.set_item("abs", broadened.abs.to_pyarray(py))?;
+        dict.set_item("cd", broadened.cd.to_pyarray(py))?;
         Ok(dict)
     }
 
