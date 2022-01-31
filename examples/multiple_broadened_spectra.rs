@@ -1,5 +1,5 @@
 // To enable examples, change the crate-type to "rlib", otherwise you'll get linker errors.
-use ham2spec::{compute_broadened_spectrum_from_hams, BroadeningConfig};
+use ham2spec::{compute_broadened_spectrum_from_ham, BroadeningConfig};
 use ndarray::{s, Array2, Array3};
 
 // These are known-good results we'll test against
@@ -127,13 +127,22 @@ fn main() {
         x_to: 13300.0,
         x_step: 1.0,
         bw: 120.0,
+        abs_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+        cd_bws: vec![120.0, 120.0, 120.0, 120.0, 120.0, 120.0, 120.0],
+        band_cutoff: 3.0,
     };
+    let one_ham = ham!();
+    let one_mus = dipole_moments!();
+    let one_rs = positions!();
     let mut specs = Vec::new();
     for _ in 0..1_000 {
         let spec =
-            compute_broadened_spectrum_from_hams(hams.view(), mus.view(), rs.view(), &config);
+            // compute_broadened_spectrum_from_hams(hams.view(), mus.view(), rs.view(), &config);
+            compute_broadened_spectrum_from_ham(one_ham.view(), one_mus.view(), one_rs.view(), &config);
         specs.push(spec);
     }
+    // let spec =
+    //     compute_broadened_spectrum_from_ham(one_ham.view(), one_mus.view(), one_rs.view(), &config);
     println!("{:?}", specs.len());
 }
 
