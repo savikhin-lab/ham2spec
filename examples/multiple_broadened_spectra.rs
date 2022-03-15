@@ -1,5 +1,5 @@
 // To enable examples, change the crate-type to "rlib", otherwise you'll get linker errors.
-use ham2spec::{compute_broadened_spectrum_from_ham, BroadeningConfig};
+use ham2spec::{compute_broadened_spectrum_from_hams, BroadeningConfig};
 use ndarray::{s, Array2, Array3};
 
 // These are known-good results we'll test against
@@ -137,8 +137,8 @@ fn main() {
     let mut specs = Vec::new();
     for _ in 0..1_000 {
         let spec =
-            // compute_broadened_spectrum_from_hams(hams.view(), mus.view(), rs.view(), &config);
-            compute_broadened_spectrum_from_ham(one_ham.view(), one_mus.view(), one_rs.view(), &config);
+            compute_broadened_spectrum_from_hams(hams.view(), mus.view(), rs.view(), &config);
+        // compute_broadened_spectrum_from_ham(one_ham.view(), one_mus.view(), one_rs.view(), &config);
         specs.push(spec);
     }
     // let spec =
